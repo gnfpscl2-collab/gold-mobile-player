@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#292d28">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="골드 플레이어">
+  <meta name="description" content="휴대폰에서 나의 GB·GBC 파일을 플레이하고 세이브를 보관하세요.">
+  <title>골드 플레이어</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-180.png">
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script src="./vendor/GameBoyCore.js" defer></script>
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <main>
+    <header class="masthead">
+      <h1>골드 플레이어<span>나의 게임, 나의 세이브.</span></h1>
+      <button id="install" hidden>앱 설치</button>
+    </header>
+    <div class="workspace">
+      <section class="console" aria-label="게임 화면과 조작">
+        <div class="screen-shell">
+          <div class="screen-heading"><span id="game-name">GAME BOY COLOR</span><span id="play-state">대기 중</span></div>
+          <div class="screen-stage">
+            <canvas id="screen" width="160" height="144" aria-label="게임보이 화면"></canvas>
+            <div id="empty-screen"><strong>플레이할 준비가 됐나요?</strong><p>휴대폰에 저장한<br>.gb 또는 .gbc 파일을 열어 주세요.</p><button id="open-main" class="primary">ROM 파일 열기</button></div>
+          </div>
+          <div class="screen-footer"><span id="file-name">파일을 기기에만 보관합니다</span><span id="speed-badge">1배속</span></div>
+        </div>
+        <div class="play-controls" aria-label="터치 조작 버튼">
+          <div class="dpad" aria-label="방향키">
+            <button data-key="2" class="up" aria-label="위"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
+            <button data-key="1" class="left" aria-label="왼쪽"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 6-6 6 6 6"/></svg></button>
+            <span class="dpad-center" aria-hidden="true"></span>
+            <button data-key="0" class="right" aria-label="오른쪽"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
+            <button data-key="3" class="down" aria-label="아래"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+          </div>
+          <div class="ab-buttons"><button data-key="5" class="b-button" aria-label="B 버튼">B</button><button data-key="4" class="a-button" aria-label="A 버튼">A</button></div>
+        </div>
+        <div class="system-controls"><button data-key="6">SELECT</button><button data-key="7">START</button><button id="pause" disabled>일시정지</button></div>
+      </section>
+      <aside class="utility" aria-label="파일과 설정">
+        <section class="file-section">
+          <h2>내 게임</h2>
+          <button id="open-rom" class="primary wide">ROM 파일 열기 <span>.gb · .gbc</span></button>
+          <input id="rom-input" type="file" accept=".gb,.gbc" hidden>
+          <button id="restore-rom" class="wide" hidden>마지막 게임 이어 열기</button>
+          <p class="hint">ROM과 세이브를 서버에 업로드하지 않습니다.</p>
+        </section>
+        <section>
+          <h2>세이브</h2>
+          <div class="save-actions"><button id="import-save" disabled>불러오기 <span>.sav</span></button><button id="export-save" disabled>파일 저장 <span>.sav</span></button></div>
+          <input id="save-input" type="file" accept=".sav" hidden>
+          <p class="hint">게임 안에서 먼저 저장한 뒤, <strong>파일 저장</strong>으로 휴대폰에도 보관하세요.</p>
+          <p id="backup-status" class="backup-status">기기 보관: 게임을 연 뒤 시작됩니다</p>
+        </section>
+        <section>
+          <h2>플레이 설정</h2>
+          <div class="setting"><label for="speed">플레이 속도</label><select id="speed" aria-describedby="speed-help"><option value="1">1배속</option><option value="1.5">1.5배속</option><option value="2">2배속</option><option value="3">3배속</option><option value="4">4배속</option><option value="5">5배속</option><option value="10">10배속</option></select></div>
+          <p id="speed-help" class="hint"></p>
+          <div class="setting"><label for="sound">소리 켜기</label><input id="sound" type="checkbox"></div>
+          <p class="hint">배속 플레이 중에는 소리를 끕니다. 게임 시계는 실제 시간을 따릅니다.</p>
+        </section>
+        <details id="help">
+          <summary>휴대폰 설치 · 파일 저장 안내</summary>
+          <p><strong>안드로이드:</strong> Chrome 메뉴에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택하세요.</p>
+          <p><strong>아이폰:</strong> Safari에서 공유 버튼을 누르고 ‘홈 화면에 추가’를 선택하세요.</p>
+          <p><strong>아이폰 세이브:</strong> ‘파일 저장’ 후 공유 창에서 ‘파일에 저장’ → ‘나의 iPhone’을 선택하세요. 공유가 지원되지 않으면 다운로드됩니다.</p>
+          <p>브라우저 보관과 홈 화면 앱 보관은 분리될 수 있습니다. 옮기기 전 .sav를 저장하고 새 창에서 불러오세요. 브라우저 데이터를 지우면 기기 보관본도 삭제될 수 있습니다.</p>
+          <p>외부 .sav는 게임 진행을 담지만 시계 정보가 없을 수 있습니다. 이 앱은 같은 기기의 시계 정보를 별도 보관합니다.</p>
+          <p class="keyboard-help">PC: 방향키 · Z=A · X=B · Enter=START · Shift=SELECT</p>
+        </details>
+        <p id="status" class="status" role="status" aria-live="polite">ROM 파일을 열어 시작하세요.</p>
+      </aside>
+    </div>
+    <footer><span>골드 플레이어 · v1.0</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
+  </main>
+</body>
+</html>
