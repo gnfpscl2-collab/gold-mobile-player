@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "골드 플레이어",
-  "short_name": "골드 플레이어",
+  "name": "Pokemon",
+  "short_name": "Pokemon",
   "lang": "ko",
   "start_url": "./",
   "scope": "./",

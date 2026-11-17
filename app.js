@@ -33,6 +33,7 @@ function status(message, error = false) {
     byId(id).textContent = message;
     byId(id).classList.toggle('error', error);
   }
+  byId('status').hidden = !error;
 }
 
 function releaseKeys() {

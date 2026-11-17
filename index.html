@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#292d28">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="골드 플레이어">
+  <meta name="apple-mobile-web-app-title" content="Pokemon">
   <meta name="description" content="휴대폰에서 나의 GB·GBC 파일을 플레이하고 세이브를 보관하세요.">
-  <title>골드 플레이어</title>
+  <title>Pokemon</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
@@ -18,7 +18,7 @@
 <body>
   <main>
     <header class="masthead">
-      <h1>골드 플레이어<span>나의 게임, 나의 세이브.</span></h1>
+      <h1>Pokemon</h1>
       <button id="open-menu" aria-haspopup="dialog" aria-controls="player-menu">메뉴</button>
     </header>
     <div class="workspace">
@@ -29,7 +29,7 @@
             <canvas id="screen" width="160" height="144" aria-label="게임보이 화면"></canvas>
             <div id="empty-screen"><strong>내 게임을 열어 보세요</strong><p>메뉴에서 ROM 파일을 열거나<br>마지막 게임을 이어서 실행하세요.</p></div>
           </div>
-          <div class="screen-footer"><span id="file-name">파일을 기기에만 보관합니다</span><span id="speed-badge">1배속</span></div>
+          <div class="screen-footer"><span id="file-name" hidden></span><span id="speed-badge">1배속</span></div>
         </div>
         <div class="play-controls" aria-label="터치 조작 버튼">
           <div class="dpad" aria-label="방향키">
@@ -46,7 +46,7 @@
         </div>
       </section>
     </div>
-    <p id="status" class="status" role="status" aria-live="polite">메뉴에서 ROM 파일을 열어 시작하세요.</p>
+    <p id="status" class="status" role="status" aria-live="polite" hidden></p>
     <dialog id="player-menu" aria-labelledby="menu-title">
       <div class="menu-heading"><h2 id="menu-title">게임 메뉴</h2><button id="close-menu" autofocus>닫기</button></div>
       <div class="utility">
@@ -86,7 +86,7 @@
         <p id="menu-status" class="status" role="status" aria-live="polite">ROM 파일을 열어 시작하세요.</p>
       </div>
     </dialog>
-    <footer><span>골드 플레이어 · v1.1.1</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
+    <footer><span>1.1.2</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
   </main>
 </body>
 </html>

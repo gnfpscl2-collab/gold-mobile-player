@@ -1,4 +1,4 @@
-# 골드 플레이어
+# Pokemon
 
 안드로이드·아이폰·PC에서 기기의 GB/GBC 파일을 실행하는 설치형 웹앱입니다.
 
@@ -57,3 +57,5 @@ http://127.0.0.1:8787/ 에서 확인합니다. PWA 설치·오프라인 보관�
 [GameBoy-Online](https://github.com/taisel/GameBoy-Online)의 MIT 코어를 고정 커밋으로 포함합니다. 원본 라이선스와 출처는 vendor/ 폴더에 있습니다. 코어는 실제 개조 ROM의 CGB/MBC3 실행, SRAM 왕복, 5배속에서도 독립적인 RTC와 오프라인 시계 복원을 별도 검사했습니다. 게임 ROM·부팅 BIOS는 포함하지 않습니다.
 
 S는 게임 원래의 START, E는 SELECT 입력입니다. E는 가방에서 미리 등록한 자전거·낚싯대 등 도구를 사용하며 게임 상황에 따라 동작합니다.
+
+제목 글꼴은 [Google Fonts의 Silkscreen Bold](https://github.com/google/fonts/tree/main/ofl/silkscreen)를 앱에 포함했습니다. SIL Open Font License 원문은 LICENSE.Silkscreen.txt에 있습니다.

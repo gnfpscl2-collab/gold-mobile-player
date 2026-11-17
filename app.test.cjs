@@ -202,6 +202,7 @@ test('a failed flush preserves the running ROM and allows recovery through file 
   const h = await harness();
   const first = rom('FIRST');
   await h.load('first.gbc', first);
+  assert.equal(h.element('status').hidden, true);
   h.latest().ram[0] = 0x59;
   h.controls.failWrite = key => key.startsWith('save:');
   await h.load('second.gbc', rom('SECOND'));
@@ -209,6 +210,7 @@ test('a failed flush preserves the running ROM and allows recovery through file 
   assert.equal(h.latest().ram[0], 0x59);
   assert.equal(h.element('file-name').textContent, 'first.gbc');
   assert.match(h.element('status').textContent, /전환을 중단/);
+  assert.equal(h.element('status').hidden, false);
   await h.element('export-save').emit('click');
   const exported = h.downloads[0].file;
   assert.equal(exported.name, 'first.sav');
