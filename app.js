@@ -33,6 +33,7 @@ let timer;
 let busy = false;
 let storedRom;
 let installPrompt;
+let temporaryState;
 const held = new Map();
 
 function status(message, error = false) {
@@ -99,11 +100,22 @@ function usableRtc(rtc) {
   return result;
 }
 
-function boot(record, saved) {
-  stop();
+function createCore(record, targetCanvas = canvas) {
   let binary = '';
   for (let offset = 0; offset < record.bytes.length; offset += 32768) binary += String.fromCharCode(...record.bytes.subarray(offset, offset + 32768));
-  const next = new GameBoyCore(canvas, binary);
+  return new GameBoyCore(targetCanvas, binary);
+}
+
+function clearTemporaryState() {
+  temporaryState = undefined;
+  byId('load-state').disabled = true;
+  byId('state-status').hidden = true;
+  byId('state-status').textContent = '';
+}
+
+function boot(record, saved) {
+  stop();
+  const next = createCore(record);
   if (saved?.ram?.length) next.openMBC = () => Array.from(saved.ram);
   const rtc = usableRtc(saved?.rtc);
   if (rtc) next.openRTC = () => rtc;
@@ -112,6 +124,8 @@ function boot(record, saved) {
   current = record;
   current.info.ramBytes = core.saveSRAMState().length;
   core.setSpeed(clampSpeed(speed.value, mobileMax));
+  clearTemporaryState();
+  byId('save-state').disabled = false;
   byId('empty-screen').hidden = true;
   byId('game-name').textContent = record.info.title || 'GAME BOY';
   byId('file-name').textContent = record.name;
@@ -119,6 +133,67 @@ function boot(record, saved) {
   byId('import-save').disabled = !hasSave;
   byId('export-save').disabled = !hasSave;
 }
+
+function temporaryStateStatus(action) {
+  byId('state-status').textContent = action + ' ' + new Date(temporaryState.savedAt).toTimeString().slice(0, 8);
+  byId('state-status').hidden = false;
+}
+
+function saveTemporaryState() {
+  if (!core || busy || menu.open) return;
+  busy = true;
+  stop();
+  try {
+    core.clockUpdate();
+    const state = core.saveState();
+    // The verified ROM is already loaded; keep only the changing machine state in memory.
+    state[0] = null;
+    const snapshot = structuredClone(state);
+    temporaryState = { romHash: current.hash, savedAt: Date.now(), state: snapshot };
+    byId('load-state').disabled = false;
+    temporaryStateStatus('임시');
+    status('현재 화면을 임시 저장했습니다. ROM을 다시 열거나 에뮬레이터를 종료하면 지워집니다.');
+  } catch {
+    status('임시 저장하지 못했습니다. 다시 시도해 주세요.', true);
+  } finally { busy = false; play(); }
+}
+
+function loadTemporaryState() {
+  if (!core || busy || menu.open || !temporaryState || temporaryState.romHash !== current.hash) return;
+  busy = true;
+  stop();
+  try {
+    const state = structuredClone(temporaryState.state);
+    state[0] = current.bytes;
+    const target = document.createElement('canvas');
+    target.width = 160;
+    target.height = 144;
+    const next = createCore(current, target);
+    next.start();
+    next.setSpeed(clampSpeed(speed.value, mobileMax));
+    next.returnFromState(state);
+    next.lastIteration = Math.min(next.lastIteration, Date.now());
+    next.clockUpdate();
+    for (let key = 0; key < 8; key++) next.JoyPadEvent(key, false);
+    next.canvas = canvas;
+    next.initLCD();
+    next.prepareFrame();
+    next.requestDraw();
+    core = next;
+    temporaryStateStatus('복원');
+    status('임시 저장한 화면으로 돌아왔습니다. 일반 세이브는 게임 안에서 저장하세요.');
+  } catch {
+    status('임시 상태를 불러오지 못했습니다. 현재 게임은 유지됩니다.', true);
+  } finally { busy = false; play(); }
+}
+
+byId('save-state').addEventListener('click', saveTemporaryState);
+byId('load-state').addEventListener('click', loadTemporaryState);
+document.addEventListener('keydown', event => {
+  if (event.repeat || menu.open || event.target.closest('input, select, textarea, summary')) return;
+  if (event.code === 'KeyT') { event.preventDefault(); saveTemporaryState(); }
+  if (event.code === 'KeyR') { event.preventDefault(); loadTemporaryState(); }
+});
 
 async function loadRom(name, bytes, expectedHash) {
   const info = validateRom(name, bytes);
@@ -343,7 +418,7 @@ byId('export-save').addEventListener('click', async () => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { stop(); persist(); }
 });
-window.addEventListener('pagehide', () => { stop(); persist(); });
+window.addEventListener('pagehide', () => { stop(); persist(); clearTemporaryState(); });
 setInterval(() => { if (core && !busy) persist(); }, 5000);
 
 window.addEventListener('beforeinstallprompt', event => {

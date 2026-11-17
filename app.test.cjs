@@ -83,7 +83,7 @@ class Target {
   }
 }
 
-async function harness({ apple = false, preferences, driveApiKey = 'test-browser-key' } = {}) {
+async function harness({ apple = false, preferences, driveApiKey = 'test-browser-key', storedRecords } = {}) {
   const validators = await import(pathToFileURL(path.join(__dirname, 'files.js')).href);
   const source = await fs.readFile(path.join(__dirname, 'app.js'), 'utf8');
   const elements = new Map();
@@ -92,6 +92,8 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
     return elements.get(id);
   };
   const speed = element('speed');
+  element('save-state').disabled = true;
+  element('load-state').disabled = true;
   speed.value = '1';
   speed.options = [1, 1.5, 2, 3, 4, 5, 10].map(value => ({
     value: String(value),
@@ -118,13 +120,13 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
   const window = new Target();
   const navigator = { userAgent: apple ? 'iPhone' : 'Windows NT 10.0',
     platform: apple ? 'iPhone' : 'Win32', maxTouchPoints: apple ? 5 : 0 };
-  const records = new Map();
+  const records = new Map(storedRecords ? structuredClone([...storedRecords]) : []);
   if (preferences) records.set('settings', structuredClone(preferences));
   const writes = [];
   const reads = [];
   const instances = [];
   const controls = { failRead: null, failWrite: null, onWrite: null, confirm: true,
-    fetch: null, driveDigestBytes: null };
+    fetch: null, driveDigestBytes: null, failCapture: false, failRestore: false };
   const fetches = [];
   const intervals = new Map();
   const timeouts = new Map();
@@ -135,6 +137,8 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
       this.ram = new Uint8Array(32768).fill(0x11);
       this.stopEmulator = 3;
       this.binaryLength = binary.length;
+      this.programCounter = 0x100;
+      this.lastIteration = Date.now();
       this.keyEvents = [];
       instances.push(this);
     }
@@ -145,6 +149,21 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
     clockUpdate() {}
     saveSRAMState() { return this.ram; }
     saveRTCState() { return this.rtc || [Date.now(), false, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false]; }
+    saveState() {
+      this.stateCaptures = (this.stateCaptures || 0) + 1;
+      if (controls.failCapture) throw new Error('capture failed');
+      return [[0xce, 0xed], this.programCounter, Array.from(this.ram), [...this.saveRTCState()]];
+    }
+    returnFromState(state) {
+      this.programCounter = state[1];
+      this.ram = Uint8Array.from(state[2]);
+      this.rtc = [...state[3]];
+      this.lastIteration = this.rtc[0];
+      if (controls.failRestore) throw new Error('restore failed');
+    }
+    initLCD() {}
+    prepareFrame() {}
+    requestDraw() {}
     setSpeed(value) { this.speed = value; }
     JoyPadEvent(key, down) { this.keyEvents.push({ key, down }); }
     run() {}
@@ -159,7 +178,7 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
       }
       return webcrypto.subtle.digest(algorithm, bytes);
     } } },
-    File, Uint8Array, ArrayBuffer, Date, console, AbortController,
+    File, Uint8Array, ArrayBuffer, Date, console, AbortController, structuredClone,
     async fetch(url, options) {
       fetches.push({ url, options });
       if (!controls.fetch) throw new Error('unexpected network request');
@@ -567,4 +586,171 @@ test('a timed-out Drive download aborts and leaves the current game recoverable'
   assert.equal(h.element('status').hidden, false);
   await h.autosave();
   assert.equal(h.records.get(saveKey(rom('FIRST'))).ram[0], 0x67);
+});
+
+test('T captures the running moment in memory and R restores CPU and RAM with the active speed', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  const first = h.latest();
+  first.programCounter = 0x412;
+  first.ram[0] = 0x49;
+  h.element('speed').value = '3';
+  await h.element('speed').emit('change');
+  const writes = h.writes.length;
+  const reads = h.reads.length;
+  await h.element('save-state').emit('click');
+  assert.equal(h.element('load-state').disabled, false);
+  assert.match(h.element('state-status').textContent, /\d{1,2}:\d{2}:\d{2}/);
+  assert.equal(h.isPlaying(), true);
+  first.programCounter = 0x663;
+  first.ram[0] = 0x74;
+  h.controls.confirm = false;
+  await h.element('load-state').emit('click');
+  assert.equal(h.instances.length, 2);
+  assert.equal(h.latest().programCounter, 0x412);
+  assert.equal(h.latest().ram[0], 0x49);
+  assert.equal(h.latest().speed, 3);
+  assert.equal(h.isPlaying(), true);
+  h.latest().programCounter = 0x888;
+  h.latest().ram[0] = 0x91;
+  await h.element('load-state').emit('click');
+  assert.equal(h.latest().programCounter, 0x412, 'loading does not mutate the captured moment');
+  assert.equal(h.latest().ram[0], 0x49);
+  assert.equal(h.writes.length, writes, 'instant state never writes IndexedDB');
+  assert.equal(h.reads.length, reads, 'instant load never reads IndexedDB');
+});
+
+test('T and R do nothing without a running ROM or a captured moment', async () => {
+  const h = await harness();
+  const writes = h.writes.length;
+  await h.element('save-state').emit('click');
+  await h.element('load-state').emit('click');
+  assert.equal(h.instances.length, 0);
+  assert.equal(h.writes.length, writes);
+  await h.load('first.gbc', rom('FIRST'));
+  await h.element('load-state').emit('click');
+  assert.equal(h.instances.length, 1);
+  assert.equal(h.element('load-state').disabled, true);
+  assert.equal(h.isPlaying(), true);
+});
+
+test('a failed T capture keeps the previous moment available', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  h.latest().programCounter = 0x456;
+  h.latest().ram[0] = 0x42;
+  await h.element('save-state').emit('click');
+  h.latest().programCounter = 0x789;
+  h.latest().ram[0] = 0x67;
+  h.controls.failCapture = true;
+  await h.element('save-state').emit('click');
+  assert.equal(h.element('load-state').disabled, false);
+  assert.equal(h.isPlaying(), true);
+  h.controls.failCapture = false;
+  await h.element('load-state').emit('click');
+  assert.equal(h.latest().programCounter, 0x456);
+  assert.equal(h.latest().ram[0], 0x42);
+});
+
+test('a failed R candidate preserves the active game and its ordinary battery save', async () => {
+  const h = await harness();
+  const firstRom = rom('FIRST');
+  await h.load('first.gbc', firstRom);
+  const original = h.latest();
+  original.programCounter = 0x345;
+  original.ram[0] = 0x46;
+  await h.element('save-state').emit('click');
+  original.programCounter = 0x567;
+  original.ram[0] = 0x78;
+  h.controls.failRestore = true;
+  await h.element('load-state').emit('click');
+  assert.equal(original.programCounter, 0x567);
+  assert.equal(original.ram[0], 0x78);
+  assert.equal(h.isPlaying(), true);
+  await h.autosave();
+  assert.equal(h.records.get(saveKey(firstRom)).ram[0], 0x78);
+  assert.equal(h.element('load-state').disabled, false);
+  h.controls.failRestore = false;
+  await h.element('load-state').emit('click');
+  assert.equal(h.latest().programCounter, 0x345);
+  assert.equal(h.latest().ram[0], 0x46);
+});
+
+test('reopening a ROM, importing a battery save, and leaving the page clear the temporary moment', async () => {
+  const h = await harness();
+  const first = rom('FIRST');
+  await h.load('first.gbc', first);
+  await h.element('save-state').emit('click');
+  h.document.hidden = true;
+  await h.document.emit('visibilitychange');
+  assert.equal(h.element('load-state').disabled, false, 'briefly hiding the page keeps the moment');
+  h.document.hidden = false;
+  await h.element('load-state').emit('click');
+  assert.equal(h.isPlaying(), true);
+  await h.load('first.gbc', first);
+  assert.equal(h.element('load-state').disabled, true);
+  await h.element('save-state').emit('click');
+  await h.importSave(new Uint8Array(32768).fill(0xbb));
+  assert.equal(h.latest().ram[0], 0xbb);
+  assert.equal(h.element('load-state').disabled, true);
+  await h.element('save-state').emit('click');
+  await h.window.emit('pagehide');
+  assert.equal(h.element('load-state').disabled, true);
+  assert.equal([...h.records.keys()].some(key => /state|moment|quick/i.test(key)), false);
+  assert.equal(h.records.get(saveKey(first)).ram[0], 0xbb);
+});
+
+test('opening a new page does not restore a temporary moment from stored data', async () => {
+  const h = await harness();
+  const first = rom('FIRST');
+  await h.load('first.gbc', first);
+  await h.element('save-state').emit('click');
+  h.records.set('state:' + saveKey(first).slice(5), { savedAt: Date.now(), state: ['stale'] });
+  const reopened = await harness({ storedRecords: h.records });
+  await reopened.element('restore-rom').emit('click');
+  await reopened.element('load-state').emit('click');
+  assert.equal(reopened.instances.length, 1);
+  assert.equal(reopened.element('load-state').disabled, true);
+  assert.equal(reopened.reads.some(key => key.startsWith('state:')), false);
+});
+
+test('T and R cannot interrupt an imported save awaiting its commit', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  const original = h.latest();
+  await h.element('save-state').emit('click');
+  const captures = original.stateCaptures;
+  const gate = deferred();
+  h.controls.onWrite = (key, value) => value.ram?.[0] === 0xcc ? gate.promise : undefined;
+  const importing = h.importSave(new Uint8Array(32768).fill(0xcc));
+  await h.settle();
+  await h.element('save-state').emit('click');
+  await h.element('load-state').emit('click');
+  assert.equal(original.stateCaptures, captures);
+  assert.equal(h.instances.length, 1);
+  gate.resolve();
+  await importing;
+  assert.equal(h.latest().ram[0], 0xcc);
+  assert.equal(h.element('load-state').disabled, true);
+});
+
+test('T and R keyboard shortcuts act once and never send additional game keys', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  const original = h.latest();
+  original.programCounter = 0x432;
+  original.ram[0] = 0x53;
+  await h.document.emit('keydown', { code: 'KeyT' });
+  assert.equal(original.stateCaptures, 1);
+  original.programCounter = 0x678;
+  original.ram[0] = 0x72;
+  await h.document.emit('keydown', { code: 'KeyT', repeat: true });
+  assert.equal(original.stateCaptures, 1);
+  await h.document.emit('keydown', { code: 'KeyR' });
+  assert.equal(h.latest().programCounter, 0x432);
+  assert.equal(h.latest().ram[0], 0x53);
+  assert.equal(h.instances.length, 2);
+  await h.document.emit('keydown', { code: 'KeyR', repeat: true });
+  assert.equal(h.instances.length, 2);
+  assert.equal(h.instances.some(instance => instance.keyEvents.some(event => event.down)), false);
 });

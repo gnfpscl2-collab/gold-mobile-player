@@ -19,3 +19,6 @@ One player screen, standard touch direction/A/B/Start/Select controls, keyboard 
 
 ## Surface
 Operate mode for player controls; the original ROM artwork is the visual focus. Keep the incumbent emulator canvas and familiar handheld control arrangement. Use quiet neutral UI with one gold action accent. These routine UI choices are inferred from the functional brief; no separate brand has been requested.
+
+- T/R captures and restores a temporary machine state only while the current ROM session remains open. No quick state persists across page close/reload or ROM restart.
+- A/B/S/E/T/R are all circular colored controls.
