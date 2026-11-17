@@ -1,5 +1,5 @@
-const CACHE = 'gold-player-v1.1.2';
-const SHELL = ['./', './index.html', './style.css', './app.js', './files.js', './storage.js', './audio.js',
+const CACHE = 'gold-player-v1.1.3';
+const SHELL = ['./', './index.html', './style.css', './app.js', './drive-config.js', './files.js', './storage.js', './audio.js',
   './vendor/GameBoyCore.js', './manifest.webmanifest', './Silkscreen-Bold.ttf', './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));

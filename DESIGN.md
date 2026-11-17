@@ -9,3 +9,5 @@ Mobile: screen first, direction pad on left and horizontally aligned A then B on
 Save files and ROMs have different labeled inputs. Pause on hidden tabs and file replacement. Saving preserves local SRAM+RTC and exports .sav; game-internal save must be performed first. Report file-save cancellation honestly.
 
 The header reads Pokemon in self-hosted Silkscreen Bold, a chunky pixel face. Body and controls retain the system sans family. No tagline or ROM filename appears during play. Routine status messages live inside the menu; actionable errors remain visible outside. The footer shows only the numeric release version. Font source: https://github.com/google/fonts/tree/main/ofl/silkscreen (SIL OFL, included as LICENSE.Silkscreen.txt).
+
+Menu ROM loading first offers the fixed Google Drive modified ROM, followed by an external folder link and a device file fallback. The filename stays hidden during play. Download progress and failures remain textual; download errors never replace the current ROM or save.

@@ -1,6 +1,7 @@
 import { validateRom, validateSave, speedLimit, clampSpeed, baseSaveName } from './files.js';
 import { readLocal, writeLocal } from './storage.js';
 import { resumeAudio, suspendAudio, setOutputMuted } from './audio.js';
+import { driveApiKey } from './drive-config.js';
 
 const byId = id => document.getElementById(id);
 const canvas = byId('screen');
@@ -8,6 +9,12 @@ const speed = byId('speed');
 const sound = byId('sound');
 const menu = byId('player-menu');
 const screenSize = byId('screen-size');
+const driveRom = {
+  name: 'Pokemon gold(K).gbc',
+  url: 'https://www.googleapis.com/drive/v3/files/1ay2KZ--rKmdbstyPXaXmDZe9OJyDqxoJ?alt=media',
+  bytes: 2097152,
+  hash: '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1',
+};
 const mobileMax = speedLimit({ userAgent: navigator.userAgent, platform: navigator.platform,
   maxTouchPoints: navigator.maxTouchPoints, coarsePointer: matchMedia('(pointer: coarse)').matches });
 const appleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
@@ -113,9 +120,10 @@ function boot(record, saved) {
   byId('export-save').disabled = !hasSave;
 }
 
-async function loadRom(name, bytes) {
+async function loadRom(name, bytes, expectedHash) {
   const info = validateRom(name, bytes);
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+  if (expectedHash && hash !== expectedHash) throw new Error('Drive 파일이 확인된 개조 ROM과 다릅니다. 올바른 파일인지 확인하거나 기기 파일 열기를 사용하세요.');
   stop();
   if (!await persist(true)) throw new Error('현재 게임을 기기에 보관하지 못해 전환을 중단했습니다. 세이브 파일을 저장하고 기기 저장 공간을 확인하세요.');
   const saved = await readLocal('save:' + hash);
@@ -181,6 +189,48 @@ byId('open-menu').addEventListener('click', () => {
 byId('close-menu').addEventListener('click', () => menu.close());
 menu.addEventListener('close', play);
 byId('open-rom').addEventListener('click', () => { if (!busy) byId('rom-input').click(); });
+byId('open-drive').addEventListener('click', async () => {
+  if (busy) return;
+  if (!driveApiKey) {
+    status('Drive 연결 준비가 완료되지 않았습니다. 기기 파일 열기를 사용하세요.', true);
+    return;
+  }
+  busy = true;
+  byId('open-drive').disabled = true;
+  status('Google Drive에서 ROM 파일을 받는 중입니다…');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const response = await fetch(driveRom.url, {
+      mode: 'cors', credentials: 'omit', referrerPolicy: 'origin', signal: controller.signal,
+      headers: { 'X-Goog-Api-Key': driveApiKey },
+    });
+    if (!response.ok || response.headers.get('content-type')?.includes('text/html')) throw new Error('Drive 파일을 내려받을 수 없습니다. Drive 폴더에서 다운로드한 뒤 기기 파일 열기를 사용하세요.');
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('이 브라우저에서는 Drive 직접 불러오기를 지원하지 않습니다. 기기 파일 열기를 사용하세요.');
+    const bytes = new Uint8Array(driveRom.bytes);
+    let length = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (length + value.length > bytes.length) throw new Error('Drive ROM 크기가 맞지 않습니다. 확인된 2MiB 개조 파일을 사용하세요.');
+        bytes.set(value, length);
+        length += value.length;
+      }
+    } finally { reader.releaseLock(); }
+    if (length !== bytes.length) throw new Error('Drive ROM 크기가 맞지 않습니다. 확인된 2MiB 개조 파일을 사용하세요.');
+    await loadRom(driveRom.name, bytes, driveRom.hash);
+  } catch (error) {
+    status(error.name === 'AbortError' ? 'Drive 연결 시간이 초과되었습니다. 다시 시도하거나 기기 파일 열기를 사용하세요.' : error.name === 'TypeError' ? 'Drive 연결에 실패했습니다. 다시 시도하거나 Drive 폴더에서 내려받아 기기 파일 열기를 사용하세요.' : error.message || 'Drive 연결에 실패했습니다. 기기 파일 열기를 사용하세요.', true);
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+    busy = false;
+    byId('open-drive').disabled = false;
+    if (core) play();
+  }
+});
 byId('rom-input').addEventListener('change', async event => {
   const file = event.target.files[0];
   event.target.value = '';

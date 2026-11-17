@@ -52,10 +52,12 @@
       <div class="utility">
         <section class="file-section">
           <h2>내 게임</h2>
-          <button id="open-rom" class="primary wide">ROM 파일 열기 <span>.gb · .gbc</span></button>
+          <button id="open-drive" class="primary wide">ROM 파일 불러오기 <span>Google Drive</span></button>
+          <a class="drive-folder" href="https://drive.google.com/drive/folders/1XKYZB4nFXcgxVYA0rFTPuWG-LRPosIoN" target="_blank" rel="noopener noreferrer">Drive 폴더 열기</a>
+          <button id="open-rom" class="wide">기기 파일 열기 <span>.gb · .gbc</span></button>
           <input id="rom-input" type="file" accept=".gb,.gbc" hidden>
           <button id="restore-rom" class="wide" hidden>마지막 게임 이어 열기</button>
-          <p class="hint">ROM과 세이브를 서버에 업로드하지 않습니다.</p>
+          <p class="hint">지정한 Drive의 개조 ROM을 불러옵니다. 세이브는 이 기기에 보관합니다.</p>
         </section>
         <section>
           <h2>세이브</h2>
@@ -86,7 +88,7 @@
         <p id="menu-status" class="status" role="status" aria-live="polite">ROM 파일을 열어 시작하세요.</p>
       </div>
     </dialog>
-    <footer><span>1.1.2</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
+    <footer><span>1.1.3</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
   </main>
 </body>
 </html>
