@@ -39,7 +39,10 @@
             <button data-key="0" class="right" aria-label="오른쪽"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
             <button data-key="3" class="down" aria-label="아래"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
           </div>
-          <div class="ab-buttons"><button data-key="4" class="a-button" aria-label="A 버튼">A</button><button data-key="5" class="b-button" aria-label="B 버튼">B</button></div>
+          <div class="action-controls">
+            <div class="ab-buttons"><button data-key="4" class="a-button" aria-label="A 버튼 · 선택">A</button><button data-key="5" class="b-button" aria-label="B 버튼 · 취소">B</button></div>
+            <div class="shortcut-buttons"><button data-key="7" aria-label="S 버튼 · 게임 목록">S <span>목록</span></button><button data-key="6" aria-label="E 버튼 · 등록 도구">E <span>등록</span></button></div>
+          </div>
         </div>
       </section>
     </div>
@@ -47,7 +50,6 @@
     <dialog id="player-menu" aria-labelledby="menu-title">
       <div class="menu-heading"><h2 id="menu-title">게임 메뉴</h2><button id="close-menu" autofocus>닫기</button></div>
       <div class="utility">
-        <div class="menu-game-actions"><button id="menu-start" disabled>START</button><button id="menu-select" disabled>SELECT</button></div>
         <section class="file-section">
           <h2>내 게임</h2>
           <button id="open-rom" class="primary wide">ROM 파일 열기 <span>.gb · .gbc</span></button>
@@ -77,13 +79,14 @@
           <p><strong>아이폰 세이브:</strong> ‘파일 저장’ 후 공유 창에서 ‘파일에 저장’ → ‘나의 iPhone’을 선택하세요. 공유가 지원되지 않으면 다운로드됩니다.</p>
           <p>브라우저 보관과 홈 화면 앱 보관은 분리될 수 있습니다. 옮기기 전 .sav를 저장하고 새 창에서 불러오세요. 브라우저 데이터를 지우면 기기 보관본도 삭제될 수 있습니다.</p>
           <p>외부 .sav는 게임 진행을 담지만 시계 정보가 없을 수 있습니다. 이 앱은 같은 기기의 시계 정보를 별도 보관합니다.</p>
-          <p class="keyboard-help">PC: 방향키 · Z=A · X=B · Enter=START · Shift=SELECT</p>
+          <p class="hint">S: 게임 목록 · E: 게임에서 등록한 도구 사용<br>A: 선택 · B: 취소</p>
+          <p class="keyboard-help">PC: 방향키 · Z=A · X=B · S/Enter=목록 · E/Shift=등록</p>
         </details>
         <button id="install" class="wide" hidden>앱 설치</button>
         <p id="menu-status" class="status" role="status" aria-live="polite">ROM 파일을 열어 시작하세요.</p>
       </div>
     </dialog>
-    <footer><span>골드 플레이어 · v1.1</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
+    <footer><span>골드 플레이어 · v1.1.1</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
   </main>
 </body>
 </html>

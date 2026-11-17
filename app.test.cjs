@@ -84,7 +84,7 @@ async function harness({ apple = false, preferences } = {}) {
   }));
   const document = new Target();
   document.getElementById = element;
-  const buttons = Array.from({ length: 6 }, (_, key) => {
+  const buttons = Array.from({ length: 8 }, (_, key) => {
     const button = new Target();
     button.dataset = { key: String(key) };
     return button;
@@ -321,17 +321,34 @@ test('opening the menu releases held controls, backs up the game, and closing re
   assert.equal(h.isPlaying(), true);
 });
 
-test('menu START and SELECT resume the game and release their input after one pulse', async () => {
+test('S and E use the game menu and registered-tool keys for touch and accessible activation', async () => {
+  const html = await fs.readFile(path.join(__dirname, 'index.html'), 'utf8');
+  assert.ok(/<button\b[^>]*data-key="7"[^>]*>\s*S(?:\s|<)/.test(html), 'S button uses the game-menu key');
+  assert.ok(/<button\b[^>]*data-key="6"[^>]*>\s*E(?:\s|<)/.test(html), 'E button uses the registered-tool key');
+  assert.doesNotMatch(html, /id="menu-(?:start|select)"/);
   const h = await harness();
   await h.load('first.gbc', rom('FIRST'));
-  for (const [id, key] of [['menu-start', 7], ['menu-select', 6]]) {
-    await h.element('open-menu').emit('click');
+  for (const key of [7, 6]) {
     h.latest().keyEvents.length = 0;
-    await h.element(id).emit('click');
-    assert.equal(h.element('player-menu').open, false);
-    assert.equal(h.isPlaying(), true);
+    await h.button(key).emit('pointerdown', { pointerId: key });
+    assert.deepEqual(h.latest().keyEvents, [{ key, down: true }]);
+    assert.equal(h.button(key).classList.contains('pressed'), true);
+    await h.button(key).emit('pointerup', { pointerId: key });
+    assert.deepEqual(h.latest().keyEvents, [{ key, down: true }, { key, down: false }]);
+    assert.equal(h.button(key).classList.contains('pressed'), false);
+
+    h.latest().keyEvents.length = 0;
+    await h.button(key).emit('click', { detail: 0 });
     assert.deepEqual(h.latest().keyEvents, [{ key, down: true }]);
     await h.flushTimeouts(120);
+    assert.deepEqual(h.latest().keyEvents, [{ key, down: true }, { key, down: false }]);
+    h.latest().keyEvents.length = 0;
+    await h.button(key).emit('click', { detail: 1 });
+    assert.deepEqual(h.latest().keyEvents, []);
+
+    const code = key === 7 ? 'KeyS' : 'KeyE';
+    await h.document.emit('keydown', { code });
+    await h.document.emit('keyup', { code });
     assert.deepEqual(h.latest().keyEvents, [{ key, down: true }, { key, down: false }]);
   }
 });

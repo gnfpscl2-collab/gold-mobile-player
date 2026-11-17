@@ -107,8 +107,6 @@ function boot(record, saved) {
   byId('empty-screen').hidden = true;
   byId('game-name').textContent = record.info.title || 'GAME BOY';
   byId('file-name').textContent = record.name;
-  byId('menu-start').disabled = false;
-  byId('menu-select').disabled = false;
   const hasSave = record.info.ramBytes > 0;
   byId('import-save').disabled = !hasSave;
   byId('export-save').disabled = !hasSave;
@@ -126,7 +124,7 @@ async function loadRom(name, bytes) {
     await writeLocal('current', storedRom);
     byId('restore-rom').hidden = false;
   } catch (error) { status(error.message, true); return; }
-  status(saved?.ram?.length ? '보관한 세이브를 불러왔습니다. 게임의 이어하기를 선택하세요.' : '게임을 열었습니다. 메뉴의 START로 시작하세요.');
+  status(saved?.ram?.length ? '보관한 세이브를 불러왔습니다. 게임의 이어하기를 선택하세요.' : '게임을 열었습니다. S 버튼으로 시작하세요.');
   menu.close();
 }
 
@@ -164,7 +162,7 @@ for (const button of document.querySelectorAll('[data-key]')) {
     setTimeout(() => changeKey(Number(button.dataset.key), source, false, button), 120);
   });
 }
-const keyboard = { ArrowRight: 0, ArrowLeft: 1, ArrowUp: 2, ArrowDown: 3, KeyZ: 4, KeyX: 5, ShiftLeft: 6, ShiftRight: 6, Enter: 7 };
+const keyboard = { ArrowRight: 0, ArrowLeft: 1, ArrowUp: 2, ArrowDown: 3, KeyZ: 4, KeyX: 5, KeyS: 7, KeyE: 6, ShiftLeft: 6, ShiftRight: 6, Enter: 7 };
 for (const type of ['keydown', 'keyup']) document.addEventListener(type, event => {
   const key = keyboard[event.code];
   if (key === undefined || event.target.closest('input, select, textarea, summary') || (event.code === 'Enter' && event.target.closest('button'))) return;
@@ -181,14 +179,6 @@ byId('open-menu').addEventListener('click', () => {
 });
 byId('close-menu').addEventListener('click', () => menu.close());
 menu.addEventListener('close', play);
-for (const [id, key] of [['menu-start', 7], ['menu-select', 6]]) byId(id).addEventListener('click', () => {
-  if (busy) return;
-  menu.close();
-  play();
-  const source = 'menu:' + key;
-  changeKey(key, source, true);
-  setTimeout(() => changeKey(key, source, false), 120);
-});
 byId('open-rom').addEventListener('click', () => { if (!busy) byId('rom-input').click(); });
 byId('rom-input').addEventListener('change', async event => {
   const file = event.target.files[0];
