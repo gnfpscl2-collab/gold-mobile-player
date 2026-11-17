@@ -19,7 +19,7 @@ const mobileMax = speedLimit({ userAgent: navigator.userAgent, platform: navigat
   maxTouchPoints: navigator.maxTouchPoints, coarsePointer: matchMedia('(pointer: coarse)').matches });
 const appleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
 for (const option of [...speed.options]) if (Number(option.value) > mobileMax) option.remove();
-byId('speed-help').textContent = (mobileMax === 5 ? '휴대폰·태블릿은 최대 5배속입니다.' : 'PC는 최대 10배속입니다.') + ' 실제 속도는 기기 성능에 따라 달라집니다.';
+byId('speed-help').textContent = (mobileMax === 5 ? '모바일 최대 5배속.' : 'PC 최대 10배속.') + ' 기기 성능에 따라 달라집니다.';
 
 globalThis.settings = [true, false, false, 0.7, true, false, 8, 10, 20, false, false, false, false, false, [true, true, true, true]];
 globalThis.initNewCanvas = () => {};
@@ -152,7 +152,7 @@ function saveTemporaryState() {
     temporaryState = { romHash: current.hash, savedAt: Date.now(), state: snapshot };
     byId('load-state').disabled = false;
     temporaryStateStatus('임시');
-    status('현재 화면을 임시 저장했습니다. ROM을 다시 열거나 에뮬레이터를 종료하면 지워집니다.');
+    status('임시 저장 완료 · 종료 시 삭제');
   } catch {
     status('임시 저장하지 못했습니다. 다시 시도해 주세요.', true);
   } finally { busy = false; play(); }
@@ -181,7 +181,7 @@ function loadTemporaryState() {
     next.requestDraw();
     core = next;
     temporaryStateStatus('복원');
-    status('임시 저장한 화면으로 돌아왔습니다. 일반 세이브는 게임 안에서 저장하세요.');
+    status('임시 화면 복원 완료');
   } catch {
     status('임시 상태를 불러오지 못했습니다. 현재 게임은 유지됩니다.', true);
   } finally { busy = false; play(); }
@@ -198,7 +198,7 @@ document.addEventListener('keydown', event => {
 async function loadRom(name, bytes, expectedHash) {
   const info = validateRom(name, bytes);
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
-  if (expectedHash && hash !== expectedHash) throw new Error('Drive 파일이 확인된 개조 ROM과 다릅니다. 올바른 파일인지 확인하거나 기기 파일 열기를 사용하세요.');
+  if (expectedHash && hash !== expectedHash) throw new Error('Drive 파일이 확인된 개조 ROM과 다릅니다. 올바른 파일인지 확인하거나 기기 ROM를 사용하세요.');
   stop();
   if (!await persist(true)) throw new Error('현재 게임을 기기에 보관하지 못해 전환을 중단했습니다. 세이브 파일을 저장하고 기기 저장 공간을 확인하세요.');
   const saved = await readLocal('save:' + hash);
@@ -208,7 +208,7 @@ async function loadRom(name, bytes, expectedHash) {
     await writeLocal('current', storedRom);
     byId('restore-rom').hidden = false;
   } catch (error) { status(error.message, true); return; }
-  status(saved?.ram?.length ? '보관한 세이브를 불러왔습니다. 게임의 이어하기를 선택하세요.' : '게임을 열었습니다. S 버튼으로 시작하세요.');
+  status(saved?.ram?.length ? '세이브 복원 완료' : '게임 준비 완료');
   menu.close();
 }
 
@@ -267,12 +267,12 @@ byId('open-rom').addEventListener('click', () => { if (!busy) byId('rom-input').
 byId('open-drive').addEventListener('click', async () => {
   if (busy) return;
   if (!driveApiKey) {
-    status('Drive 연결 준비가 완료되지 않았습니다. 기기 파일 열기를 사용하세요.', true);
+    status('Drive 연결 준비가 완료되지 않았습니다. 기기 ROM를 사용하세요.', true);
     return;
   }
   busy = true;
   byId('open-drive').disabled = true;
-  status('Google Drive에서 ROM 파일을 받는 중입니다…');
+  status('Drive 불러오는 중…');
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30000);
   try {
@@ -280,9 +280,9 @@ byId('open-drive').addEventListener('click', async () => {
       mode: 'cors', credentials: 'omit', referrerPolicy: 'origin', signal: controller.signal,
       headers: { 'X-Goog-Api-Key': driveApiKey },
     });
-    if (!response.ok || response.headers.get('content-type')?.includes('text/html')) throw new Error('Drive 파일을 내려받을 수 없습니다. Drive 폴더에서 다운로드한 뒤 기기 파일 열기를 사용하세요.');
+    if (!response.ok || response.headers.get('content-type')?.includes('text/html')) throw new Error('Drive 파일을 내려받을 수 없습니다. 도움말의 Drive 폴더에서 다운로드한 뒤 기기 ROM를 사용하세요.');
     const reader = response.body?.getReader();
-    if (!reader) throw new Error('이 브라우저에서는 Drive 직접 불러오기를 지원하지 않습니다. 기기 파일 열기를 사용하세요.');
+    if (!reader) throw new Error('이 브라우저에서는 Drive 직접 불러오기를 지원하지 않습니다. 기기 ROM를 사용하세요.');
     const bytes = new Uint8Array(driveRom.bytes);
     let length = 0;
     try {
@@ -297,7 +297,7 @@ byId('open-drive').addEventListener('click', async () => {
     if (length !== bytes.length) throw new Error('Drive ROM 크기가 맞지 않습니다. 확인된 2MiB 개조 파일을 사용하세요.');
     await loadRom(driveRom.name, bytes, driveRom.hash);
   } catch (error) {
-    status(error.name === 'AbortError' ? 'Drive 연결 시간이 초과되었습니다. 다시 시도하거나 기기 파일 열기를 사용하세요.' : error.name === 'TypeError' ? 'Drive 연결에 실패했습니다. 다시 시도하거나 Drive 폴더에서 내려받아 기기 파일 열기를 사용하세요.' : error.message || 'Drive 연결에 실패했습니다. 기기 파일 열기를 사용하세요.', true);
+    status(error.name === 'AbortError' ? 'Drive 연결 시간이 초과되었습니다. 다시 시도하거나 기기 ROM를 사용하세요.' : error.name === 'TypeError' ? 'Drive 연결에 실패했습니다. 다시 시도하거나 도움말의 Drive 폴더에서 내려받아 기기 ROM를 사용하세요.' : error.message || 'Drive 연결에 실패했습니다. 기기 ROM를 사용하세요.', true);
   } finally {
     clearTimeout(timeout);
     controller.abort();
@@ -311,7 +311,7 @@ byId('rom-input').addEventListener('change', async event => {
   event.target.value = '';
   if (!file || busy) return;
   busy = true;
-  status('ROM 파일을 확인하고 있습니다…');
+  status('ROM 확인 중…');
   try {
     if (file.size < 32768 || file.size > 8388608) throw new Error('ROM은 32KiB~8MiB의 .gb·.gbc 파일을 선택하세요. 압축 파일은 먼저 풀어 주세요.');
     await loadRom(file.name, new Uint8Array(await file.arrayBuffer()));
@@ -374,7 +374,7 @@ byId('save-input').addEventListener('change', async event => {
     // Commit before restarting, so a failed write never replaces the current save.
     await writeLocal('save:' + current.hash, saved);
     boot(current, saved);
-    status(file.name + '을 불러왔습니다. 게임의 이어하기를 선택하세요.');
+    status('세이브 불러오기 완료');
     menu.close();
   } catch (error) { status(error.message, true); }
   finally { busy = false; if (wasPlaying) play(); }
@@ -393,7 +393,7 @@ byId('export-save').addEventListener('click', async () => {
   try {
     if (appleMobile && navigator.canShare?.({ files: [file] })) {
       await navigator.share({ files: [file], title: '세이브 파일 저장' });
-      status('세이브 파일을 전달했습니다. 파일 앱에 보관되었는지 확인하세요.');
+      status('공유 창에서 파일에 저장하세요.');
     } else {
       const url = URL.createObjectURL(file);
       const link = document.createElement('a');
@@ -403,10 +403,10 @@ byId('export-save').addEventListener('click', async () => {
       link.click();
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 30000);
-      status('세이브 파일 다운로드를 요청했습니다. 다운로드 폴더를 확인하세요.');
+      status('다운로드 폴더를 확인하세요.');
     }
   } catch (error) {
-    status(error.name === 'AbortError' ? '파일 저장을 취소했습니다. 기기 보관본은 유지됩니다.' : '파일을 저장하지 못했습니다. 다시 시도하세요.', error.name !== 'AbortError');
+    status(error.name === 'AbortError' ? '저장 취소 · 기기 보관본 유지' : '파일을 저장하지 못했습니다. 다시 시도하세요.', error.name !== 'AbortError');
   } finally {
     await stored;
     busy = false;
@@ -442,7 +442,7 @@ async function initialize() {
     document.documentElement.style.setProperty('--screen-size', screenSize.value + '%');
     storedRom = await readLocal('current');
     byId('restore-rom').hidden = !storedRom;
-    if (storedRom) status('기기에 보관한 게임이 있습니다. 마지막 게임 이어 열기를 누르세요.');
+    if (storedRom) status('이어 열기 가능');
   } catch (error) { status(error.message, true); }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {
     status('오프라인 설치를 준비하지 못했습니다. 인터넷에 연결해 새로고침하세요.', true);

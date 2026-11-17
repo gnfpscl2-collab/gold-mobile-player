@@ -6,11 +6,11 @@
 
 ## 시작하기
 
-1. 플레이어의 **메뉴 → ROM 파일 불러오기**를 누르면 지정한 Google Drive의 `Pokemon gold(K).gbc`를 받아 실행합니다. 파일을 먼저 휴대폰에 내려받을 필요가 없습니다.
-2. 다른 ROM은 **기기 파일 열기**에서 .gb 또는 .gbc를 선택합니다. Drive 연결이 안 되면 **Drive 폴더 열기**에서 내려받아 이 버튼으로 선택하세요.
+1. 플레이어의 **목록 아이콘 → ROM 불러오기**를 누르면 지정한 Google Drive의 `Pokemon gold(K).gbc`를 받아 실행합니다. 파일을 먼저 휴대폰에 내려받을 필요가 없습니다.
+2. 다른 ROM은 **기기 ROM**에서 .gb 또는 .gbc를 선택합니다. Drive 연결이 안 되면 **도움말 → Drive 폴더 열기**에서 내려받아 이 버튼으로 선택하세요.
 3. 방향키와 A(왼쪽, 선택)·B(오른쪽, 취소)로 플레이합니다. S는 게임 목록, E는 게임에서 등록한 도구를 사용합니다.
-4. 게임 안에서 저장한 뒤 **메뉴 → 파일 저장 .sav**를 눌러 휴대폰에도 보관합니다.
-5. 기존 진행은 ROM을 먼저 열고 **메뉴 → 불러오기 .sav**로 가져옵니다. 불러오면 게임이 재시작됩니다.
+4. 게임 안에서 저장한 뒤 **목록 아이콘 → 내보내기 .sav**를 눌러 휴대폰에도 보관합니다.
+5. 기존 진행은 ROM을 먼저 열고 **목록 아이콘 → 불러오기 .sav**로 가져옵니다. 불러오면 게임이 재시작됩니다.
 
 ## 휴대폰에 설치하기
 
@@ -62,7 +62,7 @@ S는 게임 원래의 START, E는 SELECT 입력입니다. E는 가방에서 미�
 
 ## 지정 Drive ROM
 
-[Drive 폴더](https://drive.google.com/drive/folders/1XKYZB4nFXcgxVYA0rFTPuWG-LRPosIoN)의 `Pokemon gold(K).gbc`를 사용합니다. 파일의 2MiB 크기, ROM 헤더, 고정 SHA-256을 검사한 뒤 기존 저장 전환 절차로 실행합니다. 다운로드는 정식 Drive API로 요청합니다. 앱에 포함한 브라우저용 API 키는 플레이어 출처와 Drive API로 사용 범위를 제한하며, 사용자 로그인 쿠키나 프록시는 사용하지 않습니다. Drive 파일이나 공유 설정이 달라지면 직접 불러오기가 실패할 수 있으므로 기기 파일 열기를 유지합니다. 파일명 변경으로 세이브 연결은 바뀌지 않으며 새 내보내기 이름은 `Pokemon gold(K).sav`입니다.
+[Drive 폴더](https://drive.google.com/drive/folders/1XKYZB4nFXcgxVYA0rFTPuWG-LRPosIoN)의 `Pokemon gold(K).gbc`를 사용합니다. 파일의 2MiB 크기, ROM 헤더, 고정 SHA-256을 검사한 뒤 기존 저장 전환 절차로 실행합니다. 다운로드는 정식 Drive API로 요청합니다. 앱에 포함한 브라우저용 API 키는 플레이어 출처와 Drive API로 사용 범위를 제한하며, 사용자 로그인 쿠키나 프록시는 사용하지 않습니다. Drive 파일이나 공유 설정이 달라지면 직접 불러오기가 실패할 수 있으므로 기기 ROM를 유지합니다. 파일명 변경으로 세이브 연결은 바뀌지 않으며 새 내보내기 이름은 `Pokemon gold(K).sav`입니다.
 
 Cloud 프로젝트: `pokemon-gold-player-gnfpscl2`. `drive-config.js`의 키는 웹앱에 포함되는 공개 브라우저 키입니다. 개인 계정의 비공개 Drive 파일 접근 권한을 부여하는 OAuth 토큰이나 서비스 계정 키를 넣지 마세요. 웹사이트 제한은 `https://gnfpscl2-collab.github.io/*`, API 제한은 Google Drive API입니다. 출처 전송이 필요한 키이므로 ROM 요청은 origin Referrer를 사용합니다. 키를 바꿀 때 서비스워커 캐시 버전도 함께 갱신하세요.
 

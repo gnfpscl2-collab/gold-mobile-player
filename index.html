@@ -19,7 +19,7 @@
   <main>
     <header class="masthead">
       <h1>Pokemon</h1>
-      <button id="open-menu" aria-haspopup="dialog" aria-controls="player-menu">메뉴</button>
+      <button id="open-menu" class="icon-button" aria-label="메뉴 열기" title="메뉴" aria-haspopup="dialog" aria-controls="player-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></button>
     </header>
     <div class="workspace">
       <section class="console" aria-label="게임 화면과 조작">
@@ -50,48 +50,42 @@
     </div>
     <p id="status" class="status" role="status" aria-live="polite" hidden></p>
     <dialog id="player-menu" aria-labelledby="menu-title">
-      <div class="menu-heading"><h2 id="menu-title">게임 메뉴</h2><button id="close-menu" autofocus>닫기</button></div>
+      <div class="menu-heading"><h2 id="menu-title">메뉴</h2><button id="close-menu" class="icon-button" aria-label="메뉴 닫기" title="닫기" autofocus><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
       <div class="utility">
         <section class="file-section">
-          <h2>내 게임</h2>
-          <button id="open-drive" class="primary wide">ROM 파일 불러오기 <span>Google Drive</span></button>
-          <a class="drive-folder" href="https://drive.google.com/drive/folders/1XKYZB4nFXcgxVYA0rFTPuWG-LRPosIoN" target="_blank" rel="noopener noreferrer">Drive 폴더 열기</a>
-          <button id="open-rom" class="wide">기기 파일 열기 <span>.gb · .gbc</span></button>
+          <button id="open-drive" class="primary wide">ROM 불러오기 <span>Drive</span></button>
+          <div class="file-actions"><button id="open-rom">기기 ROM</button><button id="restore-rom" hidden>이어 열기</button></div>
           <input id="rom-input" type="file" accept=".gb,.gbc" hidden>
-          <button id="restore-rom" class="wide" hidden>마지막 게임 이어 열기</button>
-          <p class="hint">지정한 Drive의 개조 ROM을 불러옵니다. 세이브는 이 기기에 보관합니다.</p>
         </section>
         <section>
           <h2>세이브</h2>
-          <div class="save-actions"><button id="import-save" disabled>불러오기 <span>.sav</span></button><button id="export-save" disabled>파일 저장 <span>.sav</span></button></div>
+          <div class="save-actions"><button id="import-save" disabled>불러오기 <span>.sav</span></button><button id="export-save" disabled>내보내기 <span>.sav</span></button></div>
           <input id="save-input" type="file" accept=".sav" hidden>
-          <p class="hint">게임 안에서 저장한 뒤 <strong>파일 저장</strong>을 눌러 휴대폰에 보관하세요.</p>
-          <p class="hint">T는 현재 화면 임시 저장, R은 복원입니다. 임시 저장은 ROM 재실행·새로고침·종료 시 지워지며, 재실행 후에는 일반 세이브로 이어갑니다.</p>
-          <p id="backup-status" class="backup-status">기기 보관: 게임을 연 뒤 시작됩니다</p>
+          <p id="backup-status" class="backup-status">기기 저장 대기</p>
         </section>
         <section>
-          <h2>플레이 설정</h2>
-          <div class="setting"><label for="screen-size">화면 크기</label><select id="screen-size"><option value="100">100%</option><option value="90">90%</option><option value="80">80%</option></select></div>
-          <div class="setting"><label for="speed">플레이 속도</label><select id="speed" aria-describedby="speed-help"><option value="1">1배속</option><option value="1.5">1.5배속</option><option value="2">2배속</option><option value="3">3배속</option><option value="4">4배속</option><option value="5">5배속</option><option value="10">10배속</option></select></div>
-          <p id="speed-help" class="hint"></p>
-          <div class="setting"><label for="sound">소리 켜기</label><input id="sound" type="checkbox"></div>
-          <p class="hint">배속 플레이 중에는 소리를 끕니다. 게임 시계는 실제 시간을 따릅니다.</p>
+          <div class="setting"><label for="screen-size">화면</label><select id="screen-size"><option value="100">100%</option><option value="90">90%</option><option value="80">80%</option></select></div>
+          <div class="setting"><label for="speed">속도</label><select id="speed" aria-describedby="speed-help"><option value="1">1배속</option><option value="1.5">1.5배속</option><option value="2">2배속</option><option value="3">3배속</option><option value="4">4배속</option><option value="5">5배속</option><option value="10">10배속</option></select></div>
+          <div class="setting"><label for="sound">소리</label><input id="sound" type="checkbox"></div>
         </section>
         <details id="help">
-          <summary>휴대폰 설치 · 파일 저장 안내</summary>
-          <p><strong>안드로이드:</strong> Chrome 메뉴에서 ‘앱 설치’ 또는 ‘홈 화면에 추가’를 선택하세요.</p>
-          <p><strong>아이폰:</strong> Safari에서 공유 버튼을 누르고 ‘홈 화면에 추가’를 선택하세요.</p>
-          <p><strong>아이폰 세이브:</strong> ‘파일 저장’ 후 공유 창에서 ‘파일에 저장’ → ‘나의 iPhone’을 선택하세요. 공유가 지원되지 않으면 다운로드됩니다.</p>
-          <p>브라우저 보관과 홈 화면 앱 보관은 분리될 수 있습니다. 옮기기 전 .sav를 저장하고 새 창에서 불러오세요. 브라우저 데이터를 지우면 기기 보관본도 삭제될 수 있습니다.</p>
-          <p>외부 .sav는 게임 진행을 담지만 시계 정보가 없을 수 있습니다. 이 앱은 같은 기기의 시계 정보를 별도 보관합니다.</p>
-          <p class="hint">S: 게임 목록 · E: 게임에서 등록한 도구 사용<br>A: 선택 · B: 취소</p>
+          <summary>도움말</summary>
+          <p>일반 저장: 게임에서 저장 → .sav 내보내기. 다시 쓸 때는 ROM → .sav 불러오기.</p>
+          <p>T 저장 · R 복원은 실행 중에만 유지됩니다. ROM 재실행·새로고침·종료 시 삭제됩니다.</p>
+          <p id="speed-help"></p>
+          <p>배속은 무음입니다. 게임 시계는 실제 시간을 따릅니다.</p>
+          <p>앱 설치: Android Chrome 메뉴 / iPhone Safari 공유 → 홈 화면 추가.</p>
+          <p>iPhone 세이브: 공유 → 파일에 저장. Android는 다운로드 폴더를 확인하세요.</p>
+          <p>브라우저·홈 화면 앱의 보관함은 다를 수 있습니다. 옮기거나 앱 데이터를 지우기 전 .sav를 내보내세요. 외부 .sav의 게임 시계는 별도 확인하세요.</p>
+          <p>S 목록 · E 등록 도구 · A 선택 · B 취소</p>
+          <a class="drive-folder" href="https://drive.google.com/drive/folders/1XKYZB4nFXcgxVYA0rFTPuWG-LRPosIoN" target="_blank" rel="noopener noreferrer">Drive 폴더 열기</a>
           <p class="keyboard-help">PC: 방향키 · Z=A · X=B · S/Enter=목록 · E/Shift=등록 · T=임시 저장 · R=복원</p>
         </details>
         <button id="install" class="wide" hidden>앱 설치</button>
-        <p id="menu-status" class="status" role="status" aria-live="polite">ROM 파일을 열어 시작하세요.</p>
+        <p id="menu-status" class="status" role="status" aria-live="polite">ROM을 불러오세요.</p>
       </div>
     </dialog>
-    <footer><span>1.2.0</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
+    <footer><span>1.2.1</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
   </main>
 </body>
 </html>
