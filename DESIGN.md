@@ -6,7 +6,7 @@ The emulator canvas remains160×144. Preserve10:9 and nearest-neighbor rendering
 
 Phone and tall fold layouts keep direction controls and action controls below the game. Wide desktop and short landscape layouts put the controls beside the larger game. Window resizing must not restart the core or change a save.
 
-Menu actions, select boxes and open/close icons are32px high as requested. Use12px action labels and11px supporting labels. Native select text remains16px to avoid iPhone focus zoom. The menu is300px wide with subtle borders and5px control corners; long instructions stay in collapsed help. SVG list/X icons have accessible names. Game buttons remain48px circles (44px on the narrowest view), with44px direction cells. A confirms, B cancels, S opens the game list, E uses the registered item; T captures a temporary moment and R restores it.
+The user explicitly requested smaller ROM/save buttons and screen/speed selectors. ROM/save actions are24px high with10px labels. Native selects keep16px computed text and are visually scaled to63×24px (12px visible text) to avoid iPhone focus zoom;26px setting rows. The menu is260px wide with subtle borders and4px control corners; open/close icons remain32px. long instructions stay in collapsed help. SVG list/X icons have accessible names. Game buttons remain48px circles (44px on the narrowest view), with44px direction cells. A confirms, B cancels, S opens the game list, E uses the registered item; T captures a temporary moment and R restores it.
 
 Pause and release input when opening the native menu; closing/Escape resumes and restores focus. Keep errors visible, readable and untruncated. ROM names and routine main-screen status remain hidden; the footer shows only the numeric release.
 
