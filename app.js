@@ -6,6 +6,8 @@ const byId = id => document.getElementById(id);
 const canvas = byId('screen');
 const speed = byId('speed');
 const sound = byId('sound');
+const menu = byId('player-menu');
+const screenSize = byId('screen-size');
 const mobileMax = speedLimit({ userAgent: navigator.userAgent, platform: navigator.platform,
   maxTouchPoints: navigator.maxTouchPoints, coarsePointer: matchMedia('(pointer: coarse)').matches });
 const appleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
@@ -27,8 +29,10 @@ let installPrompt;
 const held = new Map();
 
 function status(message, error = false) {
-  byId('status').textContent = message;
-  byId('status').classList.toggle('error', error);
+  for (const id of ['status', 'menu-status']) {
+    byId(id).textContent = message;
+    byId(id).classList.toggle('error', error);
+  }
 }
 
 function releaseKeys() {
@@ -43,12 +47,11 @@ function stop() {
   if (core) core.stopEmulator |= 2;
   releaseKeys();
   suspendAudio();
-  byId('pause').textContent = '계속하기';
   byId('play-state').textContent = core ? '일시정지' : '대기 중';
 }
 
 function play() {
-  if (!core || busy || document.hidden) return;
+  if (!core || busy || document.hidden || menu.open) return;
   clearInterval(timer);
   setOutputMuted(!sound.checked || Number(speed.value) > 1);
   if (sound.checked && Number(speed.value) === 1) resumeAudio();
@@ -57,7 +60,6 @@ function play() {
     try { core.run(); }
     catch { stop(); status('게임 실행 중 오류가 발생했습니다. 마지막 세이브로 다시 열어 주세요.', true); }
   }, settings[6]);
-  byId('pause').textContent = '일시정지';
   byId('play-state').textContent = '플레이 중';
 }
 
@@ -105,7 +107,8 @@ function boot(record, saved) {
   byId('empty-screen').hidden = true;
   byId('game-name').textContent = record.info.title || 'GAME BOY';
   byId('file-name').textContent = record.name;
-  byId('pause').disabled = false;
+  byId('menu-start').disabled = false;
+  byId('menu-select').disabled = false;
   const hasSave = record.info.ramBytes > 0;
   byId('import-save').disabled = !hasSave;
   byId('export-save').disabled = !hasSave;
@@ -123,7 +126,8 @@ async function loadRom(name, bytes) {
     await writeLocal('current', storedRom);
     byId('restore-rom').hidden = false;
   } catch (error) { status(error.message, true); return; }
-  status(saved?.ram?.length ? '보관한 세이브를 불러왔습니다. 게임의 이어하기를 선택하세요.' : '게임을 열었습니다. START 버튼으로 시작하세요.');
+  status(saved?.ram?.length ? '보관한 세이브를 불러왔습니다. 게임의 이어하기를 선택하세요.' : '게임을 열었습니다. 메뉴의 START로 시작하세요.');
+  menu.close();
 }
 
 function changeKey(key, source, down, button) {
@@ -169,7 +173,23 @@ for (const type of ['keydown', 'keyup']) document.addEventListener(type, event =
 });
 window.addEventListener('blur', releaseKeys);
 
-for (const id of ['open-main', 'open-rom']) byId(id).addEventListener('click', () => { if (!busy) byId('rom-input').click(); });
+byId('open-menu').addEventListener('click', () => {
+  if (busy) return;
+  stop();
+  persist();
+  menu.showModal();
+});
+byId('close-menu').addEventListener('click', () => menu.close());
+menu.addEventListener('close', play);
+for (const [id, key] of [['menu-start', 7], ['menu-select', 6]]) byId(id).addEventListener('click', () => {
+  if (busy) return;
+  menu.close();
+  play();
+  const source = 'menu:' + key;
+  changeKey(key, source, true);
+  setTimeout(() => changeKey(key, source, false), 120);
+});
+byId('open-rom').addEventListener('click', () => { if (!busy) byId('rom-input').click(); });
 byId('rom-input').addEventListener('change', async event => {
   const file = event.target.files[0];
   event.target.value = '';
@@ -192,10 +212,14 @@ byId('restore-rom').addEventListener('click', async () => {
   finally { busy = false; if (core) play(); }
 });
 
-byId('pause').addEventListener('click', () => {
-  if (busy) return;
-  if (timer) { stop(); persist(); }
-  else { if (sound.checked) resumeAudio(); play(); }
+function savePreferences() {
+  writeLocal('settings', { speed: Number(speed.value), sound: sound.checked, screenSize: Number(screenSize.value) }).catch(() => {});
+}
+
+screenSize.addEventListener('change', () => {
+  if (!['80', '90', '100'].includes(screenSize.value)) screenSize.value = '100';
+  document.documentElement.style.setProperty('--screen-size', screenSize.value + '%');
+  savePreferences();
 });
 
 speed.addEventListener('change', () => {
@@ -205,7 +229,7 @@ speed.addEventListener('change', () => {
   setOutputMuted(!sound.checked || value > 1);
   core?.setSpeed(value);
   if (sound.checked && value === 1 && timer) resumeAudio();
-  writeLocal('settings', { speed: value, sound: sound.checked }).catch(() => {});
+  savePreferences();
 });
 
 sound.addEventListener('change', async () => {
@@ -215,7 +239,7 @@ sound.addEventListener('change', async () => {
   }
   if (sound.checked && !settings[0]) { settings[0] = true; core?.initSound(); }
   setOutputMuted(!sound.checked || Number(speed.value) > 1);
-  writeLocal('settings', { speed: Number(speed.value), sound: sound.checked }).catch(() => {});
+  savePreferences();
 });
 
 byId('import-save').addEventListener('click', () => { if (!busy) byId('save-input').click(); });
@@ -223,7 +247,7 @@ byId('save-input').addEventListener('change', async event => {
   const file = event.target.files[0];
   event.target.value = '';
   if (!file || !current || busy) return;
-  const wasPlaying = Boolean(timer);
+  const wasPlaying = Boolean(timer) || menu.open;
   stop();
   busy = true;
   try {
@@ -235,13 +259,14 @@ byId('save-input').addEventListener('change', async event => {
     await writeLocal('save:' + current.hash, saved);
     boot(current, saved);
     status(file.name + '을 불러왔습니다. 게임의 이어하기를 선택하세요.');
+    menu.close();
   } catch (error) { status(error.message, true); }
   finally { busy = false; if (wasPlaying) play(); }
 });
 
 byId('export-save').addEventListener('click', async () => {
   if (!core || !current || busy) return;
-  const wasPlaying = Boolean(timer);
+  const wasPlaying = Boolean(timer) || menu.open;
   stop();
   busy = true;
   const data = snapshot();
@@ -297,6 +322,8 @@ async function initialize() {
     const value = clampSpeed(preferences?.speed || 1, mobileMax);
     speed.value = [...speed.options].some(option => Number(option.value) === value) ? String(value) : '1';
     byId('speed-badge').textContent = speed.value + '배속';
+    screenSize.value = [80, 90, 100].includes(preferences?.screenSize) ? String(preferences.screenSize) : '100';
+    document.documentElement.style.setProperty('--screen-size', screenSize.value + '%');
     storedRom = await readLocal('current');
     byId('restore-rom').hidden = !storedRom;
     if (storedRom) status('기기에 보관한 게임이 있습니다. 마지막 게임 이어 열기를 누르세요.');

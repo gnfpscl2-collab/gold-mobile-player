@@ -19,7 +19,7 @@
   <main>
     <header class="masthead">
       <h1>골드 플레이어<span>나의 게임, 나의 세이브.</span></h1>
-      <button id="install" hidden>앱 설치</button>
+      <button id="open-menu" aria-haspopup="dialog" aria-controls="player-menu">메뉴</button>
     </header>
     <div class="workspace">
       <section class="console" aria-label="게임 화면과 조작">
@@ -27,7 +27,7 @@
           <div class="screen-heading"><span id="game-name">GAME BOY COLOR</span><span id="play-state">대기 중</span></div>
           <div class="screen-stage">
             <canvas id="screen" width="160" height="144" aria-label="게임보이 화면"></canvas>
-            <div id="empty-screen"><strong>플레이할 준비가 됐나요?</strong><p>휴대폰에 저장한<br>.gb 또는 .gbc 파일을 열어 주세요.</p><button id="open-main" class="primary">ROM 파일 열기</button></div>
+            <div id="empty-screen"><strong>내 게임을 열어 보세요</strong><p>메뉴에서 ROM 파일을 열거나<br>마지막 게임을 이어서 실행하세요.</p></div>
           </div>
           <div class="screen-footer"><span id="file-name">파일을 기기에만 보관합니다</span><span id="speed-badge">1배속</span></div>
         </div>
@@ -39,11 +39,15 @@
             <button data-key="0" class="right" aria-label="오른쪽"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>
             <button data-key="3" class="down" aria-label="아래"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
           </div>
-          <div class="ab-buttons"><button data-key="5" class="b-button" aria-label="B 버튼">B</button><button data-key="4" class="a-button" aria-label="A 버튼">A</button></div>
+          <div class="ab-buttons"><button data-key="4" class="a-button" aria-label="A 버튼">A</button><button data-key="5" class="b-button" aria-label="B 버튼">B</button></div>
         </div>
-        <div class="system-controls"><button data-key="6">SELECT</button><button data-key="7">START</button><button id="pause" disabled>일시정지</button></div>
       </section>
-      <aside class="utility" aria-label="파일과 설정">
+    </div>
+    <p id="status" class="status" role="status" aria-live="polite">메뉴에서 ROM 파일을 열어 시작하세요.</p>
+    <dialog id="player-menu" aria-labelledby="menu-title">
+      <div class="menu-heading"><h2 id="menu-title">게임 메뉴</h2><button id="close-menu" autofocus>닫기</button></div>
+      <div class="utility">
+        <div class="menu-game-actions"><button id="menu-start" disabled>START</button><button id="menu-select" disabled>SELECT</button></div>
         <section class="file-section">
           <h2>내 게임</h2>
           <button id="open-rom" class="primary wide">ROM 파일 열기 <span>.gb · .gbc</span></button>
@@ -55,11 +59,12 @@
           <h2>세이브</h2>
           <div class="save-actions"><button id="import-save" disabled>불러오기 <span>.sav</span></button><button id="export-save" disabled>파일 저장 <span>.sav</span></button></div>
           <input id="save-input" type="file" accept=".sav" hidden>
-          <p class="hint">게임 안에서 먼저 저장한 뒤, <strong>파일 저장</strong>으로 휴대폰에도 보관하세요.</p>
+          <p class="hint">게임 안에서 저장한 뒤 <strong>파일 저장</strong>을 눌러 휴대폰에 보관하세요.</p>
           <p id="backup-status" class="backup-status">기기 보관: 게임을 연 뒤 시작됩니다</p>
         </section>
         <section>
           <h2>플레이 설정</h2>
+          <div class="setting"><label for="screen-size">화면 크기</label><select id="screen-size"><option value="100">100%</option><option value="90">90%</option><option value="80">80%</option></select></div>
           <div class="setting"><label for="speed">플레이 속도</label><select id="speed" aria-describedby="speed-help"><option value="1">1배속</option><option value="1.5">1.5배속</option><option value="2">2배속</option><option value="3">3배속</option><option value="4">4배속</option><option value="5">5배속</option><option value="10">10배속</option></select></div>
           <p id="speed-help" class="hint"></p>
           <div class="setting"><label for="sound">소리 켜기</label><input id="sound" type="checkbox"></div>
@@ -74,10 +79,11 @@
           <p>외부 .sav는 게임 진행을 담지만 시계 정보가 없을 수 있습니다. 이 앱은 같은 기기의 시계 정보를 별도 보관합니다.</p>
           <p class="keyboard-help">PC: 방향키 · Z=A · X=B · Enter=START · Shift=SELECT</p>
         </details>
-        <p id="status" class="status" role="status" aria-live="polite">ROM 파일을 열어 시작하세요.</p>
-      </aside>
-    </div>
-    <footer><span>골드 플레이어 · v1.0</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
+        <button id="install" class="wide" hidden>앱 설치</button>
+        <p id="menu-status" class="status" role="status" aria-live="polite">ROM 파일을 열어 시작하세요.</p>
+      </div>
+    </dialog>
+    <footer><span>골드 플레이어 · v1.1</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
   </main>
 </body>
 </html>

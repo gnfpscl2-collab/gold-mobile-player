@@ -34,13 +34,28 @@ function file(name, bytes) {
 class Target {
   constructor() {
     this.listeners = new Map();
-    this.classList = { add() {}, remove() {}, toggle() {} };
+    const classes = new Set();
+    this.classList = {
+      add(name) { classes.add(name); },
+      remove(name) { classes.delete(name); },
+      contains(name) { return classes.has(name); },
+      toggle(name, enabled) { enabled ? classes.add(name) : classes.delete(name); },
+    };
     this.value = '';
     this.textContent = '';
     this.disabled = false;
     this.hidden = false;
     this.checked = false;
     this.files = [];
+    this.open = false;
+  }
+  closest() { return null; }
+  setPointerCapture() {}
+  showModal() { this.open = true; }
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    queueMicrotask(() => this.emit('close'));
   }
   addEventListener(type, handler) {
     if (!this.listeners.has(type)) this.listeners.set(type, []);
@@ -53,7 +68,7 @@ class Target {
   }
 }
 
-async function harness({ apple = false } = {}) {
+async function harness({ apple = false, preferences } = {}) {
   const validators = await import(pathToFileURL(path.join(__dirname, 'files.js')).href);
   const source = await fs.readFile(path.join(__dirname, 'app.js'), 'utf8');
   const elements = new Map();
@@ -69,7 +84,15 @@ async function harness({ apple = false } = {}) {
   }));
   const document = new Target();
   document.getElementById = element;
-  document.querySelectorAll = () => [];
+  const buttons = Array.from({ length: 6 }, (_, key) => {
+    const button = new Target();
+    button.dataset = { key: String(key) };
+    return button;
+  });
+  document.querySelectorAll = selector => selector === '[data-key]' ? buttons :
+    buttons.filter(button => selector === '[data-key="' + button.dataset.key + '"]');
+  const styles = new Map();
+  document.documentElement = { style: { setProperty(name, value) { styles.set(name, value); } } };
   document.body = { append() {} };
   const downloads = [];
   const blobs = new Map();
@@ -81,17 +104,21 @@ async function harness({ apple = false } = {}) {
   const navigator = { userAgent: apple ? 'iPhone' : 'Windows NT 10.0',
     platform: apple ? 'iPhone' : 'Win32', maxTouchPoints: apple ? 5 : 0 };
   const records = new Map();
+  if (preferences) records.set('settings', structuredClone(preferences));
   const writes = [];
   const reads = [];
   const instances = [];
   const controls = { failRead: null, failWrite: null, onWrite: null, confirm: true };
   const intervals = new Map();
+  const timeouts = new Map();
   let intervalId = 0;
+  let timeoutId = 0;
   class Core {
     constructor(canvas, binary) {
       this.ram = new Uint8Array(32768).fill(0x11);
       this.stopEmulator = 3;
       this.binaryLength = binary.length;
+      this.keyEvents = [];
       instances.push(this);
     }
     start() {
@@ -102,7 +129,7 @@ async function harness({ apple = false } = {}) {
     saveSRAMState() { return this.ram; }
     saveRTCState() { return this.rtc || [Date.now(), false, 0, 0, 0, 0, 0, 0, 0, 0, 0, false, false]; }
     setSpeed(value) { this.speed = value; }
-    JoyPadEvent() {}
+    JoyPadEvent(key, down) { this.keyEvents.push({ key, down }); }
     run() {}
   }
   const context = vm.createContext({
@@ -118,7 +145,7 @@ async function harness({ apple = false } = {}) {
     resumeAudio: async () => true, suspendAudio() {}, setOutputMuted() {},
     setInterval(callback, period) { const id = ++intervalId; intervals.set(id, { callback, period }); return id; },
     clearInterval(id) { intervals.delete(id); },
-    setTimeout() {},
+    setTimeout(callback, delay) { const id = ++timeoutId; timeouts.set(id, { callback, delay }); return id; },
     async readLocal(key) {
       reads.push(key);
       if (controls.failRead?.(key)) throw new Error('read failed');
@@ -137,7 +164,16 @@ async function harness({ apple = false } = {}) {
   const settle = () => new Promise(resolve => setImmediate(resolve));
   await settle();
   return {
-    element, document, window, navigator, downloads, records, writes, reads, instances, controls, settle,
+    element, document, window, navigator, downloads, records, writes, reads, instances, controls, settle, styles,
+    button(key) { return buttons[key]; },
+    isPlaying() { return [...intervals.values()].some(interval => interval.period === 8); },
+    async flushTimeouts(delay) {
+      for (const [id, timeout] of timeouts) if (timeout.delay === delay) {
+        timeouts.delete(id);
+        timeout.callback();
+      }
+      await settle();
+    },
     async load(name, bytes) {
       const input = element('rom-input');
       input.files = [file(name, bytes)];
@@ -254,4 +290,114 @@ test('canceling the phone share sheet preserves the local save and reports cance
   assert.equal(h.records.get(saveKey(first)).ram[0], 0x47);
   assert.match(h.element('status').textContent, /취소/);
   assert.equal(h.element('export-save').disabled, false);
+});
+
+test('opening the menu releases held controls, backs up the game, and closing resumes it', async () => {
+  const h = await harness();
+  const first = rom('FIRST');
+  await h.load('first.gbc', first);
+  h.latest().ram[0] = 0x61;
+  await h.button(4).emit('pointerdown', { pointerId: 1 });
+  await h.document.emit('keydown', { code: 'ArrowLeft' });
+  assert.equal(h.button(4).classList.contains('pressed'), true);
+  assert.equal(h.isPlaying(), true);
+
+  await h.element('open-menu').emit('click');
+  await h.settle();
+  assert.equal(h.element('player-menu').open, true);
+  assert.equal(h.isPlaying(), false);
+  assert.equal(h.button(4).classList.contains('pressed'), false);
+  assert.deepEqual(h.latest().keyEvents.filter(event => event.key === 4), [
+    { key: 4, down: true }, { key: 4, down: false },
+  ]);
+  assert.deepEqual(h.latest().keyEvents.filter(event => event.key === 1), [
+    { key: 1, down: true }, { key: 1, down: false },
+  ]);
+  assert.equal(h.records.get(saveKey(first)).ram[0], 0x61);
+
+  await h.element('close-menu').emit('click');
+  await h.settle();
+  assert.equal(h.element('player-menu').open, false);
+  assert.equal(h.isPlaying(), true);
+});
+
+test('menu START and SELECT resume the game and release their input after one pulse', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  for (const [id, key] of [['menu-start', 7], ['menu-select', 6]]) {
+    await h.element('open-menu').emit('click');
+    h.latest().keyEvents.length = 0;
+    await h.element(id).emit('click');
+    assert.equal(h.element('player-menu').open, false);
+    assert.equal(h.isPlaying(), true);
+    assert.deepEqual(h.latest().keyEvents, [{ key, down: true }]);
+    await h.flushTimeouts(120);
+    assert.deepEqual(h.latest().keyEvents, [{ key, down: true }, { key, down: false }]);
+  }
+});
+
+test('an import resumes after the menu closes while its storage commit is pending', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  await h.element('open-menu').emit('click');
+  await h.settle();
+  const gate = deferred();
+  h.controls.onWrite = (key, value) => value.ram?.[0] === 0xaa ? gate.promise : undefined;
+  const importing = h.importSave(new Uint8Array(32768).fill(0xaa));
+  await h.settle();
+  await h.element('close-menu').emit('click');
+  assert.equal(h.isPlaying(), false);
+  gate.resolve();
+  await importing;
+  assert.equal(h.latest().ram[0], 0xaa);
+  assert.equal(h.isPlaying(), true);
+});
+
+test('an export resumes after the menu closes while the phone share sheet is pending', async () => {
+  const h = await harness({ apple: true });
+  await h.load('first.gbc', rom('FIRST'));
+  await h.element('open-menu').emit('click');
+  const sheet = deferred();
+  h.navigator.canShare = () => true;
+  h.navigator.share = () => sheet.promise;
+  const exporting = h.element('export-save').emit('click');
+  await h.settle();
+  await h.element('close-menu').emit('click');
+  assert.equal(h.isPlaying(), false);
+  sheet.resolve();
+  await exporting;
+  assert.equal(h.isPlaying(), true);
+});
+
+test('finishing an export keeps the game paused while its menu remains open', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  await h.element('open-menu').emit('click');
+  await h.element('export-save').emit('click');
+  assert.equal(h.element('player-menu').open, true);
+  assert.equal(h.isPlaying(), false);
+  await h.element('close-menu').emit('click');
+  assert.equal(h.isPlaying(), true);
+});
+
+test('screen size persists with the other settings and restores on the next launch', async () => {
+  const h = await harness({ preferences: { speed: 2, sound: false, screenSize: 90 } });
+  assert.equal(h.element('screen-size').value, '90');
+  assert.equal(h.styles.get('--screen-size'), '90%');
+  h.element('speed').value = '3';
+  h.element('sound').checked = true;
+  h.element('screen-size').value = '80';
+  await h.element('screen-size').emit('change');
+  assert.equal(h.styles.get('--screen-size'), '80%');
+  assert.deepEqual(h.records.get('settings'), { speed: 3, sound: true, screenSize: 80 });
+  const reopened = await harness({ preferences: h.records.get('settings') });
+  assert.equal(reopened.element('screen-size').value, '80');
+  assert.equal(reopened.styles.get('--screen-size'), '80%');
+  assert.equal(reopened.element('speed').value, '3');
+
+  reopened.element('screen-size').value = '999';
+  await reopened.element('screen-size').emit('change');
+  assert.equal(reopened.element('screen-size').value, '100');
+  assert.equal(reopened.styles.get('--screen-size'), '100%');
+  assert.equal(reopened.records.get('settings').screenSize, 100);
 });
