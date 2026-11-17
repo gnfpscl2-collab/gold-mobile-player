@@ -140,6 +140,8 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
       this.programCounter = 0x100;
       this.lastIteration = Date.now();
       this.keyEvents = [];
+      this.downKeys = new Set();
+      this.sampledKeys = [];
       instances.push(this);
     }
     start() {
@@ -165,8 +167,12 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
     prepareFrame() {}
     requestDraw() {}
     setSpeed(value) { this.speed = value; }
-    JoyPadEvent(key, down) { this.keyEvents.push({ key, down }); }
-    run() {}
+    JoyPadEvent(key, down) {
+      this.keyEvents.push({ key, down });
+      if (down) this.downKeys.add(key);
+      else this.downKeys.delete(key);
+    }
+    run() { this.sampledKeys.push([...this.downKeys]); }
   }
   const context = vm.createContext({
     ...validators, document, window, GameBoyCore: Core, driveApiKey,
@@ -214,7 +220,12 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
   return {
     element, document, window, navigator, downloads, records, writes, reads, instances, controls, settle, styles, fetches,
     button(key) { return buttons[key]; },
-    isPlaying() { return [...intervals.values()].some(interval => interval.period === 8); },
+    playPeriod() { return [...intervals.values()].find(interval => interval.period < 5000)?.period; },
+    isPlaying() { return this.playPeriod() !== undefined; },
+    tick(count = 1) {
+      const interval = [...intervals.values()].find(interval => interval.period < 5000);
+      for (let i = 0; i < count; i++) interval.callback();
+    },
     hasTimeout(delay) { return [...timeouts.values()].some(timeout => timeout.delay === delay); },
     async flushTimeouts(delay) {
       for (const [id, timeout] of timeouts) if (timeout.delay === delay) {
@@ -380,28 +391,72 @@ test('S and E use the game menu and registered-tool keys for touch and accessibl
   const h = await harness();
   await h.load('first.gbc', rom('FIRST'));
   for (const key of [7, 6]) {
+    const touch = { changedTouches: [{ identifier: key }] };
     h.latest().keyEvents.length = 0;
-    await h.button(key).emit('pointerdown', { pointerId: key });
+    await h.button(key).emit('touchstart', touch);
     assert.deepEqual(h.latest().keyEvents, [{ key, down: true }]);
     assert.equal(h.button(key).classList.contains('pressed'), true);
-    await h.button(key).emit('pointerup', { pointerId: key });
+    await h.button(key).emit('touchend', touch);
+    h.tick(3);
     assert.deepEqual(h.latest().keyEvents, [{ key, down: true }, { key, down: false }]);
     assert.equal(h.button(key).classList.contains('pressed'), false);
 
     h.latest().keyEvents.length = 0;
+    h.tick(3);
     await h.button(key).emit('click', { detail: 0 });
     assert.deepEqual(h.latest().keyEvents, [{ key, down: true }]);
     await h.flushTimeouts(120);
+    h.tick(3);
     assert.deepEqual(h.latest().keyEvents, [{ key, down: true }, { key, down: false }]);
     h.latest().keyEvents.length = 0;
     await h.button(key).emit('click', { detail: 1 });
     assert.deepEqual(h.latest().keyEvents, []);
 
     const code = key === 7 ? 'KeyS' : 'KeyE';
+    h.tick(3);
     await h.document.emit('keydown', { code });
     await h.document.emit('keyup', { code });
+    h.tick(3);
     assert.deepEqual(h.latest().keyEvents, [{ key, down: true }, { key, down: false }]);
   }
+});
+
+test('rapid 5x touch taps reach the game as two distinct presses even between emulator ticks', async () => {
+  const h = await harness({ apple: true, preferences: { speed: 5 } });
+  await h.load('first.gbc', rom('FIRST'));
+  assert.equal(h.playPeriod(), 4);
+  assert.equal(h.latest().speed, 5);
+  const tap = { changedTouches: [{ identifier: 1 }] };
+  for (let i = 0; i < 2; i++) {
+    await h.button(4).emit('touchstart', tap);
+    await h.button(4).emit('touchend', tap);
+  }
+  h.tick(4);
+  assert.deepEqual(h.latest().sampledKeys, [[4], [], [4], []]);
+});
+
+test('a held direction survives pointer capture loss, follows a slide and releases on touch end', async () => {
+  const h = await harness({ apple: true });
+  await h.load('first.gbc', rom('FIRST'));
+  const touch = { changedTouches: [{ identifier: 1, clientX: 40, clientY: 80 }] };
+  await h.button(2).emit('touchstart', touch);
+  await h.button(2).emit('lostpointercapture', { pointerId: 1, pointerType: 'touch' });
+  h.tick(120);
+  assert.ok(h.latest().sampledKeys.every(keys => keys.length === 1 && keys[0] === 2));
+
+  h.document.elementFromPoint = () => ({ closest: () => h.button(0) });
+  await h.button(2).emit('touchmove', touch);
+  h.tick(4);
+  assert.deepEqual(h.latest().sampledKeys.at(-1), [0]);
+  await h.button(2).emit('touchend', touch);
+  h.tick();
+  assert.deepEqual(h.latest().sampledKeys.at(-1), []);
+  assert.equal(h.button(0).classList.contains('pressed'), false);
+
+  await h.button(2).emit('touchstart', touch);
+  await h.button(2).emit('touchcancel', touch);
+  h.tick(4);
+  assert.ok(h.latest().sampledKeys.slice(-4).every(keys => keys.length === 0));
 });
 
 test('an import resumes after the menu closes while its storage commit is pending', async () => {

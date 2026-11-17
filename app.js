@@ -35,6 +35,7 @@ let storedRom;
 let installPrompt;
 let temporaryState;
 const held = new Map();
+const keys = Array.from({ length: 8 }, () => ({ ticks: 0, edges: [] }));
 
 function status(message, error = false) {
   for (const id of ['status', 'menu-status']) {
@@ -45,7 +46,11 @@ function status(message, error = false) {
 }
 
 function releaseKeys() {
-  for (let key = 0; key < 8; key++) core?.JoyPadEvent(key, false);
+  keys.forEach((input, key) => {
+    input.ticks = 0;
+    input.edges.length = 0;
+    core?.JoyPadEvent(key, false);
+  });
   held.clear();
   document.querySelectorAll('[data-key]').forEach(button => button.classList.remove('pressed'));
 }
@@ -66,7 +71,13 @@ function play() {
   if (sound.checked && Number(speed.value) === 1) resumeAudio();
   core.stopEmulator &= 1;
   timer = setInterval(() => {
-    try { core.run(); }
+    try {
+      core.run();
+      keys.forEach((input, key) => {
+        if (input.ticks > 0) input.ticks--;
+        if (!input.ticks && input.edges.length) sendKey(key, input.edges.shift());
+      });
+    }
     catch { stop(); status('게임 실행 중 오류가 발생했습니다. 마지막 세이브로 다시 열어 주세요.', true); }
   }, settings[6]);
   byId('play-state').textContent = '플레이 중';
@@ -106,6 +117,12 @@ function createCore(record, targetCanvas = canvas) {
   return new GameBoyCore(targetCanvas, binary);
 }
 
+function setPlaybackSpeed(target, value) {
+  // Keep fast-forward work in shorter tasks so touch events can run between them.
+  settings[6] = value >= 3 ? 4 : 8;
+  target?.setSpeed(value);
+}
+
 function clearTemporaryState() {
   temporaryState = undefined;
   byId('load-state').disabled = true;
@@ -123,7 +140,7 @@ function boot(record, saved) {
   core = next;
   current = record;
   current.info.ramBytes = core.saveSRAMState().length;
-  core.setSpeed(clampSpeed(speed.value, mobileMax));
+  setPlaybackSpeed(core, clampSpeed(speed.value, mobileMax));
   clearTemporaryState();
   byId('save-state').disabled = false;
   byId('empty-screen').hidden = true;
@@ -170,7 +187,7 @@ function loadTemporaryState() {
     target.height = 144;
     const next = createCore(current, target);
     next.start();
-    next.setSpeed(clampSpeed(speed.value, mobileMax));
+    setPlaybackSpeed(next, clampSpeed(speed.value, mobileMax));
     next.returnFromState(state);
     next.lastIteration = Math.min(next.lastIteration, Date.now());
     next.clockUpdate();
@@ -212,38 +229,86 @@ async function loadRom(name, bytes, expectedHash) {
   menu.close();
 }
 
-function changeKey(key, source, down, button) {
-  if (!core || !timer) return;
+function sendKey(key, down) {
+  core.JoyPadEvent(key, down);
+  // Give the game at least one frame to sample both the press and the release.
+  keys[key].ticks = Math.ceil(17 / (settings[6] * Number(speed.value)));
+}
+
+function queueKey(key, down) {
+  const input = keys[key];
+  if (!input.ticks) {
+    sendKey(key, down);
+  } else if (input.edges.length < 4) {
+    input.edges.push(down);
+  } else {
+    // shortcut: cap backlog at two taps so stale inputs cannot keep replaying.
+    input.edges.splice(2, 2, down);
+  }
+}
+
+function changeKey(key, source, down, button, cancelled = false) {
+  if (key === undefined || !core || !timer) return;
   if (down) {
     if (held.has(source)) return;
     const alreadyDown = [...held.values()].includes(key);
     held.set(source, key);
-    if (!alreadyDown) core.JoyPadEvent(key, true);
+    if (!alreadyDown) queueKey(key, true);
     button?.classList.add('pressed');
   } else {
+    if (held.get(source) !== key) return;
     held.delete(source);
     if (![...held.values()].includes(key)) {
-      core.JoyPadEvent(key, false);
+      if (cancelled) {
+        keys[key].edges.length = 0;
+        sendKey(key, false);
+      } else {
+        queueKey(key, false);
+      }
       document.querySelectorAll('[data-key="' + key + '"]').forEach(element => element.classList.remove('pressed'));
     }
   }
 }
 
 for (const button of document.querySelectorAll('[data-key]')) {
+  const key = Number(button.dataset.key);
   button.addEventListener('contextmenu', event => event.preventDefault());
   button.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'touch' || event.button > 0) return;
     event.preventDefault();
     button.setPointerCapture(event.pointerId);
-    changeKey(Number(button.dataset.key), 'pointer:' + event.pointerId, true, button);
+    changeKey(key, 'pointer:' + event.pointerId, true, button);
   });
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(type, event => {
-    changeKey(Number(button.dataset.key), 'pointer:' + event.pointerId, false, button);
+    changeKey(key, 'pointer:' + event.pointerId, false, button);
+  });
+  // A touch stays with its original target until it ends, even if it slides off.
+  button.addEventListener('touchstart', event => {
+    event.preventDefault();
+    for (const touch of event.changedTouches) changeKey(key, 'touch:' + touch.identifier, true, button);
+  }, { passive: false });
+  if (key < 4) button.addEventListener('touchmove', event => {
+    for (const touch of event.changedTouches) {
+      const source = 'touch:' + touch.identifier;
+      const previous = held.get(source);
+      if (previous === undefined) continue;
+      const target = document.elementFromPoint(touch.clientX, touch.clientY)?.closest('.dpad [data-key]');
+      if (!target || Number(target.dataset.key) === previous) continue;
+      changeKey(previous, source, false);
+      changeKey(Number(target.dataset.key), source, true, target);
+    }
+  }, { passive: true });
+  for (const type of ['touchend', 'touchcancel']) button.addEventListener(type, event => {
+    for (const touch of event.changedTouches) {
+      const source = 'touch:' + touch.identifier;
+      changeKey(held.get(source), source, false, undefined, type === 'touchcancel');
+    }
   });
   button.addEventListener('click', event => {
     if (event.detail !== 0) return;
     const source = 'activate:' + button.dataset.key;
-    changeKey(Number(button.dataset.key), source, true, button);
-    setTimeout(() => changeKey(Number(button.dataset.key), source, false, button), 120);
+    changeKey(key, source, true, button);
+    setTimeout(() => changeKey(key, source, false, button), 120);
   });
 }
 const keyboard = { ArrowRight: 0, ArrowLeft: 1, ArrowUp: 2, ArrowDown: 3, KeyZ: 4, KeyX: 5, KeyS: 7, KeyE: 6, ShiftLeft: 6, ShiftRight: 6, Enter: 7 };
@@ -343,8 +408,8 @@ speed.addEventListener('change', () => {
   speed.value = String(value);
   byId('speed-badge').textContent = value + '배속';
   setOutputMuted(!sound.checked || value > 1);
-  core?.setSpeed(value);
-  if (sound.checked && value === 1 && timer) resumeAudio();
+  setPlaybackSpeed(core, value);
+  if (timer) play();
   savePreferences();
 });
 

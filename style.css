@@ -74,8 +74,9 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;image-rend
 .play-controls{
   display:flex;align-items:center;justify-content:space-between;gap:24px;
   width:100%;max-width:calc(var(--game-width) + 16px);margin-inline:auto;padding:16px 8px 2px;
-  touch-action:none;user-select:none;-webkit-user-select:none;
+  touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;
 }
+.play-controls [data-key]{transition:none}
 .dpad{display:grid;grid-template-columns:repeat(3,44px);grid-template-rows:repeat(3,44px)}
 .dpad button{min-height:44px;padding:8px;border:0;border-radius:0;background:#364432;color:#f6f8f0}
 .dpad button:hover,.dpad button.pressed{background:#53674c;transform:none}
