@@ -11,9 +11,9 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./style.css?v=1.2.1">
+  <link rel="stylesheet" href="./style.css?v=1.3.0">
   <script src="./vendor/GameBoyCore.js" defer></script>
-  <script type="module" src="./app.js?v=1.2.1"></script>
+  <script type="module" src="./app.js?v=1.3.0"></script>
 </head>
 <body>
   <main>
@@ -23,13 +23,15 @@
     </header>
     <div class="workspace">
       <section class="console" aria-label="게임 화면과 조작">
-        <div class="screen-shell">
-          <div class="screen-heading"><span id="game-name">GAME BOY COLOR</span><span id="play-state">대기 중</span></div>
-          <div class="screen-stage">
-            <canvas id="screen" width="160" height="144" aria-label="게임보이 화면"></canvas>
-            <div id="empty-screen"><strong>내 게임을 열어 보세요</strong><p>메뉴에서 ROM 파일을 열거나<br>마지막 게임을 이어서 실행하세요.</p></div>
+        <div class="display-area">
+          <div class="screen-shell">
+            <div class="screen-heading"><span id="game-name">GAME BOY COLOR</span><span id="play-state">대기 중</span></div>
+            <div class="screen-stage">
+              <canvas id="screen" width="160" height="144" aria-label="게임보이 화면"></canvas>
+              <div id="empty-screen"><strong>내 게임을 열어 보세요</strong><p>메뉴에서 ROM 파일을 열거나<br>마지막 게임을 이어서 실행하세요.</p></div>
+            </div>
+            <div class="screen-footer"><span id="file-name" hidden></span><span id="speed-badge">1배속</span></div>
           </div>
-          <div class="screen-footer"><span id="file-name" hidden></span><span id="speed-badge">1배속</span></div>
         </div>
         <div class="play-controls" aria-label="터치 조작 버튼">
           <div class="dpad" aria-label="방향키">
@@ -85,7 +87,7 @@
         <p id="menu-status" class="status" role="status" aria-live="polite">ROM을 불러오세요.</p>
       </div>
     </dialog>
-    <footer><span>1.2.1</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
+    <footer><span>1.3.0</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
   </main>
 </body>
 </html>
