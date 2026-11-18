@@ -102,6 +102,7 @@ function GameBoyCore(canvas, ROMImage) {
 	this.RTCDays = 0;							//RTC days counter.
 	this.RTCDayOverFlow = false;				//Did the RTC overflow and wrap the day counter?
 	this.RTCHALT = false;						//Is the RTC allowed to clock up?
+	this.rtcTickOrigin = 0;					//Last accounted single-speed emulation tick.
 	//Gyro:
 	this.highX = 127;
 	this.lowX = 127;
@@ -180,7 +181,7 @@ function GameBoyCore(canvas, ROMImage) {
 	this.serialShiftTimerAllocated = 0;	//Serial Transfer Shift Timer Refill
 	this.IRQEnableDelay = 0;			//Are the interrupts on queue to be enabled?
 	var dateVar = new Date();
-	this.lastIteration = dateVar.getTime();//The last time we iterated the main loop.
+	this.lastIteration = dateVar.getTime();//Legacy timestamp slot in save states.
 	dateVar = new Date();
 	this.firstIteration = dateVar.getTime();
 	this.iterations = 0;
@@ -3934,7 +3935,7 @@ GameBoyCore.prototype.saveRTCState = function () {
 	else {
 		//Return the MBC RAM for backup...
 		return [
-			this.lastIteration,
+			Date.now(),	//Legacy save metadata; never used to advance the in-game RTC.
 			this.RTCisLatched,
 			this.latchedSeconds,
 			this.latchedMinutes,
@@ -5718,7 +5719,6 @@ GameBoyCore.prototype.run = function () {
 			if (!this.CPUStopped) {
 				this.stopEmulator = 0;
 				this.audioUnderrunAdjustment();
-				this.clockUpdate();			//RTC clocking.
 				if (!this.halt) {
 					this.executeIteration();
 				}
@@ -5733,6 +5733,7 @@ GameBoyCore.prototype.run = function () {
 						this.executeIteration();
 					}
 				}
+				this.clockUpdate();		//Account for the STOP instruction after an early iteration end.
 				//Request the graphics target to be updated:
 				this.requestDraw();
 			}
@@ -5754,6 +5755,10 @@ GameBoyCore.prototype.executeIteration = function () {
 	var opcodeToExecute = 0;
 	var timedTicks = 0;
 	while (this.stopEmulator == 0) {
+		if (this.linkSerial && !this.linkSerial.beforeInstruction()) {
+			this.stopEmulator |= 1;
+			break;
+		}
 		//Interrupt Arming:
 		switch (this.IRQEnableDelay) {
 			case 1:
@@ -5801,7 +5806,10 @@ GameBoyCore.prototype.executeIteration = function () {
 				}
 			}
 		}
-		if (this.serialTimer > 0) {										//Serial Timing
+		if (this.linkSerial) {
+			this.linkSerial.advance(this.CPUTicks);
+		}
+		else if (this.serialTimer > 0) {										//Serial Timing
 			//IRQ Counter:
 			this.serialTimer -= this.CPUTicks;
 			if (this.serialTimer <= 0) {
@@ -5823,6 +5831,7 @@ GameBoyCore.prototype.executeIteration = function () {
 }
 GameBoyCore.prototype.iterationEndRoutine = function () {
 	if ((this.stopEmulator & 0x1) == 0) {
+		this.clockUpdate();
 		this.audioJIT();	//Make sure we at least output once per iteration.
 		//Update DIV Alignment (Integer overflow safety):
 		this.memory[0xFF04] = (this.memory[0xFF04] + (this.DIVTicks >> 8)) & 0xFF;
@@ -5830,6 +5839,7 @@ GameBoyCore.prototype.iterationEndRoutine = function () {
 		//Update emulator flags:
 		this.stopEmulator |= 1;			//End current loop.
 		this.emulatorTicks -= this.CPUCyclesTotal;
+		this.rtcTickOrigin = this.emulatorTicks;
 		this.CPUCyclesTotalCurrent += this.CPUCyclesTotalRoundoff;
 		this.recalculateIterationClockLimit();
 	}
@@ -5971,7 +5981,10 @@ GameBoyCore.prototype.updateCore = function () {
 			}
 		}
 	}
-	if (this.serialTimer > 0) {										//Serial Timing
+	if (this.linkSerial) {
+		this.linkSerial.advance(this.CPUTicks);
+	}
+	else if (this.serialTimer > 0) {										//Serial Timing
 		//IRQ Counter:
 		this.serialTimer -= this.CPUTicks;
 		if (this.serialTimer <= 0) {
@@ -6198,14 +6211,12 @@ GameBoyCore.prototype.executeHDMA = function () {
 }
 GameBoyCore.prototype.clockUpdate = function () {
 	if (this.cTIMER) {
-		var dateObj = new Date();
-		var newTime = dateObj.getTime();
-		var timeElapsed = newTime - this.lastIteration;	//Get the numnber of milliseconds since this last executed.
-		this.lastIteration = newTime;
-		if (this.cTIMER && !this.RTCHALT) {
-			//Update the MBC3 RTC:
-			this.RTCSeconds += timeElapsed / 1000;
-			while (this.RTCSeconds >= 60) {	//System can stutter, so the seconds difference can get large, thus the "while".
+		var ticks = this.emulatorTicks - this.rtcTickOrigin;
+		this.rtcTickOrigin = this.emulatorTicks;
+		if (ticks > 0 && !this.RTCHALT) {
+			// emulatorTicks uses the base Game Boy clock even in CGB double-speed CPU mode.
+			this.RTCSeconds += ticks / 0x400000;
+			while (this.RTCSeconds >= 60) {
 				this.RTCSeconds -= 60;
 				++this.RTCMinutes;
 				if (this.RTCMinutes >= 60) {
@@ -8276,6 +8287,7 @@ GameBoyCore.prototype.MBC3WriteRTCLatch = function (parentObj, address, data) {
 		parentObj.RTCisLatched = false;
 	}
 	else if (!parentObj.RTCisLatched) {
+		parentObj.clockUpdate();
 		//Copy over the current RTC time for reading.
 		parentObj.RTCisLatched = true;
 		parentObj.latchedSeconds = parentObj.RTCSeconds | 0;
@@ -8327,6 +8339,9 @@ GameBoyCore.prototype.memoryWriteMBCRAM = function (parentObj, address, data) {
 }
 GameBoyCore.prototype.memoryWriteMBC3RAM = function (parentObj, address, data) {
 	if (parentObj.MBCRAMBanksEnabled || settings[10]) {
+		if (parentObj.currMBCRAMBank >= 0x08 && parentObj.currMBCRAMBank <= 0x0C) {
+			parentObj.clockUpdate();
+		}
 		switch (parentObj.currMBCRAMBank) {
 			case 0x00:
 			case 0x01:
@@ -8363,7 +8378,7 @@ GameBoyCore.prototype.memoryWriteMBC3RAM = function (parentObj, address, data) {
 				break;
 			case 0x0C:
 				parentObj.RTCDayOverFlow = (data > 0x7F);
-				parentObj.RTCHalt = (data & 0x40) == 0x40;
+				parentObj.RTCHALT = (data & 0x40) == 0x40;
 				parentObj.RTCDays = ((data & 0x1) << 8) | (parentObj.RTCDays & 0xFF);
 				break;
 			default:
