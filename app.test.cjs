@@ -45,6 +45,7 @@ class Target {
     this.textContent = '';
     this.disabled = false;
     this.hidden = false;
+    this.dataset = {};
     this.checked = false;
     this.files = [];
     this.open = false;
@@ -94,6 +95,7 @@ async function harness({ apple = false, preferences, storedRecords, emulatedRomH
   }));
   const document = new Target();
   document.getElementById = element;
+  document.dispatchEvent = event => { void document.emit(event.type, event); };
   const buttons = Array.from({ length: 8 }, (_, key) => {
     const button = new Target();
     button.dataset = { key: String(key) };
@@ -415,7 +417,7 @@ test('the verified Korean ROM opens the online list once per accepted trade prom
     emulatedRomHash: '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1',
   });
   const events = [];
-  h.document.dispatchEvent = event => events.push(event.type);
+  h.document.dispatchEvent = event => { if (event.type === 'player-trade-wait') events.push(event.type); };
   await h.load('Pokemon gold(K).gbc', rom('FIRST'));
   const ram = h.latest().GBCMemory = new Uint8Array(0xb00);
   ram[0xafd] = 20;
@@ -438,6 +440,13 @@ test('the verified Korean ROM opens the online list once per accepted trade prom
   ram[0x21e] = 0x64;
   h.tick(2);
   assert.deepEqual(events, ['player-trade-wait', 'player-trade-wait']);
+  assert.equal(h.element('screen').dataset.tradeBuild, '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1');
+});
+
+test('a different ROM is not announced as trade-compatible', async () => {
+  const h = await harness();
+  await h.load('Pokemon gold(K).gbc', rom('FIRST'));
+  assert.equal(h.element('screen').dataset.tradeBuild, '');
 });
 
 test('rapid 5x touch taps reach the game as two distinct presses even between emulator ticks', async () => {

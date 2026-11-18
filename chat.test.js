@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cooldownUntil, messageSlot, nicknameFor } from './chat.js';
+import { compatibleTradePeers, cooldownUntil, messageSlot, nicknameFor } from './chat.js';
 
 test('nicknames count Hangul as two characters and normalize composed input', () => {
   assert.equal(nicknameFor('가나다라마바사'), null);
@@ -30,4 +30,12 @@ test('three accepted messages in ten seconds impose a fifteen-second cooldown', 
   assert.equal(cooldownUntil({ createdAt: stamp(10_000), firstOfThreeAt: stamp(0) }), 25_000);
   assert.equal(cooldownUntil({ createdAt: stamp(10_001), firstOfThreeAt: stamp(0) }), 13_001);
   assert.equal(cooldownUntil({ createdAt: stamp(25_000), firstOfThreeAt: stamp(5_000) }), 28_000);
+});
+
+test('trade list uses ROM content identity rather than filenames or online status alone', () => {
+  const self = { uid: 'self', nickname: '나', tradeBuild: 'same-build' };
+  const matching = { uid: 'matching', nickname: '같은판', tradeBuild: 'same-build' };
+  const players = [self, matching, { uid: 'other', tradeBuild: 'other-build' }, { uid: 'lobby', tradeBuild: null }];
+  assert.deepEqual(compatibleTradePeers(players, 'same-build', 'self'), [matching]);
+  assert.deepEqual(compatibleTradePeers(players, null, 'self'), []);
 });

@@ -7,6 +7,7 @@ const canvas = byId('screen');
 const romInput = byId('rom-input');
 const romList = byId('rom-list');
 const romExtensions = romInput.accept;
+const tradeRomHash = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
 const speed = byId('speed');
 const sound = byId('sound');
 sound.checked = true;
@@ -83,8 +84,8 @@ function play() {
 
 function checkTradeWait() {
   const ram = core.GBCMemory;
-  // This exact Korean build waits for a link at 5c:4c64 after choosing Trade on the second floor.
-  const waiting = current?.hash === '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1'
+  // This build waits for a link at 5c:4c64 after choosing Trade on the second floor.
+  const waiting = current?.hash === tradeRomHash
     && ram?.[0xafd] === 20 && ram[0xafe] === 1 && ram[0x20e] === 1
     && ram[0x21d] === 0x5c && (ram[0x21e] | ram[0x21f] << 8) === 0x4c64;
   if (waiting && !showingTradeWait) document.dispatchEvent(new Event('player-trade-wait'));
@@ -100,7 +101,6 @@ for (const type of ['click', 'touchend', 'keydown']) {
 
 function snapshot() {
   if (!core || !current) return null;
-  core.clockUpdate();
   return { ram: Uint8Array.from(core.saveSRAMState()), rtc: core.saveRTCState(), savedAt: Date.now() };
 }
 
@@ -121,9 +121,7 @@ async function persist(force = false) {
 
 function usableRtc(rtc) {
   if (!Array.isArray(rtc) || rtc.length !== 13 || !rtc.every(value => typeof value === 'boolean' || Number.isFinite(value))) return null;
-  const result = [...rtc];
-  result[0] = Math.min(result[0], Date.now());
-  return result;
+  return [...rtc];
 }
 
 function createCore(record, targetCanvas = canvas) {
@@ -155,6 +153,8 @@ function boot(record, saved) {
   core = next;
   current = record;
   showingTradeWait = false;
+  canvas.dataset.tradeBuild = record.hash === tradeRomHash ? tradeRomHash : '';
+  document.dispatchEvent(new Event('player-rom-build'));
   current.info.ramBytes = core.saveSRAMState().length;
   setPlaybackSpeed(core, clampSpeed(speed.value, mobileMax));
   clearTemporaryState();
@@ -172,17 +172,37 @@ function temporaryStateStatus(action) {
   byId('state-status').hidden = false;
 }
 
+function captureCoreState() {
+  const state = core.saveState();
+  // The running cartridge already owns the unchanged ROM bytes.
+  state[0] = null;
+  return structuredClone(state);
+}
+
+function restoreCoreState(savedState) {
+  const state = structuredClone(savedState);
+  state[0] = current.bytes;
+  const target = document.createElement('canvas');
+  target.width = 160;
+  target.height = 144;
+  const next = createCore(current, target);
+  next.start();
+  setPlaybackSpeed(next, clampSpeed(speed.value, mobileMax));
+  next.returnFromState(state);
+  for (let key = 0; key < 8; key++) next.JoyPadEvent(key, false);
+  next.canvas = canvas;
+  next.initLCD();
+  next.prepareFrame();
+  next.requestDraw();
+  core = next;
+}
+
 function saveTemporaryState() {
   if (!core || busy || menu.open) return;
   busy = true;
   stop();
   try {
-    core.clockUpdate();
-    const state = core.saveState();
-    // The verified ROM is already loaded; keep only the changing machine state in memory.
-    state[0] = null;
-    const snapshot = structuredClone(state);
-    temporaryState = { romHash: current.hash, savedAt: Date.now(), state: snapshot };
+    temporaryState = { romHash: current.hash, savedAt: Date.now(), state: captureCoreState() };
     byId('load-state').disabled = false;
     temporaryStateStatus('임시');
     status('임시 저장 완료 · 종료 시 삭제');
@@ -196,23 +216,7 @@ function loadTemporaryState() {
   busy = true;
   stop();
   try {
-    const state = structuredClone(temporaryState.state);
-    state[0] = current.bytes;
-    const target = document.createElement('canvas');
-    target.width = 160;
-    target.height = 144;
-    const next = createCore(current, target);
-    next.start();
-    setPlaybackSpeed(next, clampSpeed(speed.value, mobileMax));
-    next.returnFromState(state);
-    next.lastIteration = Math.min(next.lastIteration, Date.now());
-    next.clockUpdate();
-    for (let key = 0; key < 8; key++) next.JoyPadEvent(key, false);
-    next.canvas = canvas;
-    next.initLCD();
-    next.prepareFrame();
-    next.requestDraw();
-    core = next;
+    restoreCoreState(temporaryState.state);
     showingTradeWait = false;
     temporaryStateStatus('복원');
     status('임시 화면 복원 완료');

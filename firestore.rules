@@ -55,12 +55,15 @@ service cloud.firestore {
       let presence = request.resource.data;
       return eligible()
         && request.auth.uid == uid
-        && presence.keys().hasOnly(['uid', 'nickname', 'seenAt', 'sessionId'])
+        && presence.keys().hasOnly(['uid', 'nickname', 'seenAt', 'sessionId', 'tradeBuild'])
         && presence.uid == uid
         && presence.nickname == get(profilePath(uid)).data.nickname
         && presence.seenAt == request.time
         && presence.sessionId is string
-        && presence.sessionId.matches('[0-9a-f]{32}');
+        && presence.sessionId.matches('[0-9a-f]{32}')
+        && presence.get('tradeBuild', null) in [
+          null, '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1'
+        ];
     }
 
     match /chatPresence/{uid} {

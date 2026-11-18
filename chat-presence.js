@@ -5,12 +5,13 @@ export function freshPresence(leases, now = Date.now()) {
   return leases.filter(({ seenAt }) => Number.isFinite(seenAt) && now < seenAt + LEASE_MS);
 }
 
-export function watchPresence({ db, data, uid, nickname, onChange }) {
+export function watchPresence({ db, data, uid, nickname, onChange, getTradeBuild = () => null }) {
   const ownLease = data.doc(db, 'chatPresence', uid);
   const sessionId = crypto.randomUUID().replaceAll('-', '');
   const query = data.query(data.collection(db, 'chatPresence'), data.orderBy('seenAt', 'desc'), data.limit(100));
   let stopped = false;
   let inFlight;
+  let pendingHeartbeat = false;
   let expiryTimer;
   let leases = [];
 
@@ -19,7 +20,7 @@ export function watchPresence({ db, data, uid, nickname, onChange }) {
     clearTimeout(expiryTimer);
     const now = Date.now();
     const fresh = navigator.onLine ? freshPresence(leases, now) : [];
-    onChange(fresh.map(({ uid, nickname }) => ({ uid, nickname })));
+    onChange(fresh.map(({ uid, nickname, tradeBuild }) => ({ uid, nickname, tradeBuild })));
     if (fresh.length) {
       const nextExpiry = Math.min(...fresh.map(({ seenAt }) => seenAt + LEASE_MS));
       expiryTimer = setTimeout(emitList, Math.min(LEASE_MS, Math.max(1, nextExpiry - now)));
@@ -27,14 +28,24 @@ export function watchPresence({ db, data, uid, nickname, onChange }) {
   }
 
   async function heartbeat() {
-    if (stopped || inFlight || document.hidden || !navigator.onLine) return;
+    if (stopped || document.hidden || !navigator.onLine) return;
+    if (inFlight) {
+      pendingHeartbeat = true;
+      return;
+    }
     try {
-      inFlight = data.setDoc(ownLease, { uid, nickname, sessionId, seenAt: data.serverTimestamp() });
+      inFlight = data.setDoc(ownLease, {
+        uid, nickname, sessionId, seenAt: data.serverTimestamp(), tradeBuild: getTradeBuild() ?? null,
+      });
       await inFlight;
     } catch {
       // Failed updates expire naturally and the next heartbeat retries.
     } finally {
       inFlight = undefined;
+      if (pendingHeartbeat) {
+        pendingHeartbeat = false;
+        void heartbeat();
+      }
     }
   }
 
@@ -45,8 +56,8 @@ export function watchPresence({ db, data, uid, nickname, onChange }) {
 
   const unsubscribe = data.onSnapshot(query, { includeMetadataChanges: true }, snapshot => {
     leases = snapshot.metadata.fromCache ? [] : snapshot.docs.map(doc => {
-      const { uid, nickname, seenAt } = doc.data();
-      return { uid, nickname, seenAt: seenAt?.toMillis?.() };
+      const { uid, nickname, seenAt, tradeBuild = null } = doc.data();
+      return { uid, nickname, tradeBuild, seenAt: seenAt?.toMillis?.() };
     });
     emitList();
   }, () => {
@@ -82,5 +93,5 @@ export function watchPresence({ db, data, uid, nickname, onChange }) {
     });
   }
 
-  return { stop, removeOwnLease };
+  return { stop, removeOwnLease, refresh };
 }

@@ -1,5 +1,5 @@
 import { firebaseConfig } from './chat-config.js?v=1.5.0';
-import { watchPresence } from './chat-presence.js?v=1.6.0';
+import { watchPresence } from './chat-presence.js?v=1.7.0';
 
 const sdk = 'https://www.gstatic.com/firebasejs/13.3.0/';
 const allowedEmail = /^[^@\s]+@(?:gmail\.com|naver\.com)$/i;
@@ -12,6 +12,10 @@ export function nicknameFor(input) {
 
 export function messageSlot(seq) {
   return 'm' + (seq % 100);
+}
+
+export function compatibleTradePeers(players, build, myUid) {
+  return build ? players.filter(player => player.tradeBuild === build && player.uid !== myUid) : [];
 }
 
 export function cooldownUntil(rate) {
@@ -60,6 +64,9 @@ async function connectChat(authButton) {
   let posting = false;
   let profile;
   let session = 0;
+  let playersOnline = [];
+  let showCompatibleOnly = false;
+  const getTradeBuild = () => byId('screen').dataset.tradeBuild || null;
 
   function renderMessages(snapshot) {
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
@@ -83,8 +90,11 @@ async function connectChat(authButton) {
   }
 
   function renderOnline(players) {
-    onlineButton.textContent = '온라인 ' + players.length + '명';
-    const names = players.length ? players.map(player => player.nickname) : ['현재 접속자가 없습니다.'];
+    playersOnline = players;
+    const visiblePlayers = showCompatibleOnly ? compatibleTradePeers(players, getTradeBuild(), auth.currentUser?.uid) : players;
+    onlineButton.textContent = (showCompatibleOnly ? '같은 개조판 ' : '온라인 ') + visiblePlayers.length + '명';
+    const emptyMessage = showCompatibleOnly ? '같은 개조판을 실행 중인 상대가 없습니다.' : '현재 접속자가 없습니다.';
+    const names = visiblePlayers.length ? visiblePlayers.map(player => player.nickname) : [emptyMessage];
     onlineList.replaceChildren(...names.map(name => {
       const item = document.createElement('li');
       item.textContent = name;
@@ -120,7 +130,7 @@ async function connectChat(authButton) {
     }, () => {});
     const cooldownTimer = setInterval(renderCooldown, 1000);
     unsubscribeRoom = () => { stopMessages(); stopRate(); clearInterval(cooldownTimer); };
-    presence = watchPresence({ db, data, uid, nickname: profile.nickname, onChange: renderOnline });
+    presence = watchPresence({ db, data, uid, nickname: profile.nickname, getTradeBuild, onChange: renderOnline });
   }
 
   async function sessionChanged() {
@@ -244,13 +254,28 @@ async function connectChat(authButton) {
     onlineButton.setAttribute('aria-expanded', String(open));
   }
 
-  onlineButton.addEventListener('click', () => setOnlineOpen(onlineList.hidden));
+  onlineButton.addEventListener('click', () => {
+    const open = onlineList.hidden;
+    if (!open) {
+      showCompatibleOnly = false;
+      renderOnline(playersOnline);
+    }
+    setOnlineOpen(open);
+  });
+  document.addEventListener('player-rom-build', () => {
+    showCompatibleOnly = false;
+    renderOnline(playersOnline);
+    presence?.refresh();
+  });
   document.addEventListener('player-trade-wait', () => {
-    if (profile) setOnlineOpen(true);
+    if (profile) {
+      showCompatibleOnly = true;
+      renderOnline(playersOnline);
+      setOnlineOpen(true);
+    }
     else setStatus('온라인 닉네임을 보려면 채팅 계정으로 로그인하고 닉네임을 등록하세요.');
     byId('chat').scrollIntoView({ block: 'nearest' });
   });
-
   profileForm.addEventListener('submit', event => {
     event.preventDefault();
     const user = auth.currentUser;
