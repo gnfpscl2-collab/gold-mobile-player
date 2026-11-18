@@ -1,14 +1,14 @@
 import { validateRom, validateSave, speedLimit, clampSpeed, baseSaveName, isRomFilename } from './files.js?v=1.4.0';
-import { readLocal, writeLocal } from './storage.js';
+import { readLocal, writeLocal, writeLocalIfMissing } from './storage.js?v=1.8.1';
 import { resumeAudio, setOutputMuted } from './audio.js?v=1.4.1';
 import { attachLinkSerial } from './link-serial.js?v=1.8.0';
+import { CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD, isSupportedTradeBuild } from './trade-signaling.js?v=1.8.1';
 
 const byId = id => document.getElementById(id);
 const canvas = byId('screen');
 const romInput = byId('rom-input');
 const romList = byId('rom-list');
 const romExtensions = romInput.accept;
-const tradeRomHash = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
 const speed = byId('speed');
 const sound = byId('sound');
 sound.checked = true;
@@ -92,8 +92,8 @@ function play() {
 
 function checkTradeWait() {
   const ram = core.GBCMemory;
-  // This exact Korean build waits for a link at 5c:4c64 after choosing Trade on the second floor.
-  const waiting = Boolean(!trade && current?.hash === tradeRomHash
+  // Both verified builds wait for a link at 5c:4c64 after choosing Trade on the second floor.
+  const waiting = Boolean(!trade && isSupportedTradeBuild(current?.hash)
     && ram?.[0xafd] === 20 && ram[0xafe] === 1 && ram[0x20e] === 1
     && ram[0x21d] === 0x5c && (ram[0x21e] | ram[0x21f] << 8) === 0x4c64);
   if (waiting === showingTradeWait) return;
@@ -171,7 +171,7 @@ function boot(record, saved) {
   current = record;
   holdTradeWait = showingTradeWait = false;
   canvas.dataset.tradeReady = 'false';
-  canvas.dataset.tradeBuild = record.hash === tradeRomHash ? tradeRomHash : '';
+  canvas.dataset.tradeBuild = isSupportedTradeBuild(record.hash) ? record.hash : '';
   document.dispatchEvent(new Event('player-rom-build'));
   current.info.ramBytes = core.saveSRAMState().length;
   setPlaybackSpeed(core, clampSpeed(speed.value, mobileMax));
@@ -219,7 +219,7 @@ canvas.dataset.tradeLink = 'true';
 document.addEventListener('player-trade-connect', event => {
   const { channel, initiator, romHash, finish } = event.detail;
   if (!core || busy || document.hidden || menu.open || !showingTradeWait ||
-      current.hash !== tradeRomHash || romHash !== tradeRomHash || channel.readyState !== 'open') {
+      !isSupportedTradeBuild(romHash) || current.hash !== romHash || channel.readyState !== 'open') {
     holdTradeWait = false;
     finish('unavailable');
     return;
@@ -403,7 +403,17 @@ async function loadRom(name, bytes) {
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
   stop();
   if (!await persist(true)) throw new Error('현재 게임을 기기에 보관하지 못해 전환을 중단했습니다. 세이브 파일을 저장하고 기기 저장 공간을 확인하세요.');
-  const saved = await readLocal('save:' + hash);
+  const saveKey = 'save:' + hash;
+  let saved = await readLocal(saveKey);
+  if (saved === undefined && hash === CURRENT_TRADE_BUILD) {
+    const previousSave = await readLocal('save:' + PREVIOUS_TRADE_BUILD);
+    if (previousSave != null) {
+      if (!(previousSave.ram instanceof Uint8Array) || previousSave.ram.length !== info.ramBytes) {
+        throw new Error('기존 개조판의 세이브를 불러오지 못했습니다.');
+      }
+      saved = await writeLocalIfMissing(saveKey, previousSave);
+    }
+  }
   boot({ name, bytes, info, hash }, saved);
   storedRom = { name, bytes };
   try {

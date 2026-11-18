@@ -25,3 +25,22 @@ export async function writeLocal(key, value) {
     transaction.onabort = () => reject(new Error('기기 보관을 완료하지 못했습니다. 세이브 파일로 따로 저장하세요.'));
   });
 }
+
+export async function writeLocalIfMissing(key, value) {
+  const db = await database;
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction('files', 'readwrite');
+    const files = transaction.objectStore('files');
+    const request = files.get(key);
+    let selected;
+    request.onsuccess = () => {
+      selected = request.result;
+      if (selected === undefined) {
+        files.add(value, key);
+        selected = value;
+      }
+    };
+    transaction.oncomplete = () => resolve(selected);
+    transaction.onabort = () => reject(new Error('기존 세이브를 새 개조판에 보관하지 못했습니다.'));
+  });
+}

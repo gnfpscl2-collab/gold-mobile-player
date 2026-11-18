@@ -1,18 +1,25 @@
-export const SUPPORTED_TRADE_BUILD = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
+export const PREVIOUS_TRADE_BUILD = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
+export const CURRENT_TRADE_BUILD = '6120e2ff614b9d5f743c66ba0e35d0f291b2f6b41666e4b9ae5278f53cab7aaa';
 const CHANNEL_LABEL = 'gb-serial-v1';
 const MAX_SDP_SIZE = 32_000;
 const CONNECT_TIMEOUT = 45_000;
 
-function assertTradeBuild(romHash) {
-  if (romHash !== SUPPORTED_TRADE_BUILD) throw new Error('이 교환은 확인된 개조판에서만 할 수 있습니다.');
+export function isSupportedTradeBuild(romHash) {
+  return romHash === PREVIOUS_TRADE_BUILD || romHash === CURRENT_TRADE_BUILD;
+}
+
+function assertTradeBuild(romHash, expectedHash) {
+  if (!isSupportedTradeBuild(romHash) || romHash !== expectedHash) {
+    throw new Error('같은 개조판끼리만 교환할 수 있습니다.');
+  }
 }
 
 function sameInvite(a, b) {
-  return a != null && a.nonce === b.nonce && a.fromUid === b.fromUid && a.toUid === b.toUid;
+  return a != null && a.nonce === b.nonce && a.fromUid === b.fromUid && a.toUid === b.toUid && a.romHash === b.romHash;
 }
 
 function checkInvite(current, invite) {
-  if (!sameInvite(current, invite) || current.romHash !== SUPPORTED_TRADE_BUILD || current.status === 'closed') {
+  if (!sameInvite(current, invite) || current.status === 'closed') {
     throw new Error('교환 요청이 종료되었거나 바뀌었습니다.');
   }
 }
@@ -34,7 +41,7 @@ export function watchTradeInvite({ db, data, uid, onChange, onError }) {
 }
 
 export async function sendTradeInvite({ db, data, fromUid, toUid, romHash }) {
-  assertTradeBuild(romHash);
+  assertTradeBuild(romHash, romHash);
   if (!fromUid || !toUid || fromUid === toUid) throw new Error('교환할 다른 사용자를 선택하세요.');
   const invite = { fromUid, toUid, romHash, nonce: crypto.randomUUID().replaceAll('-', ''), status: 'pending' };
   await data.setDoc(inviteRef(db, data, toUid), { ...invite, createdAt: data.serverTimestamp() });
@@ -42,7 +49,7 @@ export async function sendTradeInvite({ db, data, fromUid, toUid, romHash }) {
 }
 
 export async function acceptTradeInvite({ db, data, invite, romHash }) {
-  assertTradeBuild(romHash);
+  assertTradeBuild(romHash, invite?.romHash);
   const ref = inviteRef(db, data, invite.toUid);
   return data.runTransaction(db, async transaction => {
     const current = (await transaction.get(ref)).data();
@@ -131,7 +138,7 @@ async function localSdp(peer, description, signal) {
 }
 
 export async function connectTrade({ db, data, invite, uid, romHash, signal: externalSignal }) {
-  assertTradeBuild(romHash);
+  assertTradeBuild(romHash, invite?.romHash);
   if (uid !== invite.fromUid && uid !== invite.toUid) throw new Error('교환 참여자만 접속할 수 있습니다.');
   if (externalSignal?.aborted) throw aborted(externalSignal);
   const controller = new AbortController();

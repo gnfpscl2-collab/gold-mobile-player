@@ -61,9 +61,7 @@ service cloud.firestore {
         && presence.seenAt == request.time
         && presence.sessionId is string
         && presence.sessionId.matches('[0-9a-f]{32}')
-        && presence.get('tradeBuild', null) in [
-          null, '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1'
-        ];
+        && (presence.get('tradeBuild', null) == null || supportedTradeBuild(presence.tradeBuild));
     }
 
     match /chatPresence/{uid} {
@@ -73,14 +71,17 @@ service cloud.firestore {
       allow create, update: if validPresence(uid);
     }
 
-    function supportedTradeBuild() {
-      return '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
+    function supportedTradeBuild(build) {
+      return build in [
+        '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1',
+        '6120e2ff614b9d5f743c66ba0e35d0f291b2f6b41666e4b9ae5278f53cab7aaa'
+      ];
     }
 
-    function readyToTrade(uid) {
+    function readyToTrade(uid, build) {
       let presence = get(/databases/$(database)/documents/chatPresence/$(uid));
       return presence != null
-        && presence.data.get('tradeBuild', null) == supportedTradeBuild()
+        && presence.data.get('tradeBuild', null) == build
         && presence.data.seenAt + duration.value(100, 's') > request.time;
     }
 
@@ -106,11 +107,11 @@ service cloud.firestore {
         && toUid != invite.fromUid
         && invite.nonce is string
         && invite.nonce.matches('[0-9a-f]{32}')
-        && invite.romHash == supportedTradeBuild()
+        && supportedTradeBuild(invite.romHash)
         && invite.createdAt == request.time
         && invite.status == 'pending'
-        && readyToTrade(invite.fromUid)
-        && readyToTrade(toUid);
+        && readyToTrade(invite.fromUid, invite.romHash)
+        && readyToTrade(toUid, invite.romHash);
     }
 
     function tradeOfferSaved(invite) {
@@ -129,7 +130,9 @@ service cloud.firestore {
         && (
           (after.status == 'closed' && before.status != 'closed')
           || (tradeOpen(before) && before.status == 'pending' && after.status == 'accepted'
-            && request.auth.uid == before.toUid && readyToTrade(before.fromUid) && readyToTrade(before.toUid))
+            && request.auth.uid == before.toUid
+            && readyToTrade(before.fromUid, before.romHash)
+            && readyToTrade(before.toUid, before.romHash))
           || (tradeOpen(before) && before.status == 'accepted' && after.status == 'offered'
             && request.auth.uid == before.fromUid && tradeOfferSaved(before))
         );

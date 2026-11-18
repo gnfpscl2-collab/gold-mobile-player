@@ -78,6 +78,7 @@ class Target {
 
 async function harness({ apple = false, preferences, storedRecords, emulatedRomHash, attachLinkSerial } = {}) {
   const validators = await import(pathToFileURL(path.join(__dirname, 'files.js')).href);
+  const tradeBuilds = await import(pathToFileURL(path.join(__dirname, 'trade-signaling.js')).href);
   const source = await fs.readFile(path.join(__dirname, 'app.js'), 'utf8');
   const elements = new Map();
   const element = id => {
@@ -174,7 +175,7 @@ async function harness({ apple = false, preferences, storedRecords, emulatedRomH
     run() { this.sampledKeys.push([...this.downKeys]); }
   }
   const context = vm.createContext({
-    ...validators, document, window, GameBoyCore: Core, attachLinkSerial,
+    ...validators, ...tradeBuilds, document, window, GameBoyCore: Core, attachLinkSerial,
     navigator,
     matchMedia: () => ({ matches: false }),
     crypto: emulatedRomHash ? {
@@ -204,6 +205,15 @@ async function harness({ apple = false, preferences, storedRecords, emulatedRomH
       if (controls.failWrite?.(key, copy)) throw new Error('storage full');
       if (controls.onWrite) await controls.onWrite(key, copy);
       records.set(key, copy);
+    },
+    async writeLocalIfMissing(key, value) {
+      const copy = structuredClone(value);
+      if (controls.onWrite) await controls.onWrite(key, copy);
+      if (records.has(key)) return structuredClone(records.get(key));
+      if (controls.failWrite?.(key, copy)) throw new Error('storage full');
+      writes.push({ key, value: copy });
+      records.set(key, copy);
+      return structuredClone(copy);
     },
   });
   // The real controller runs unchanged; only browser and storage boundaries are supplied by the test.
@@ -251,6 +261,53 @@ async function harness({ apple = false, preferences, storedRecords, emulatedRomH
 function saveKey(bytes) {
   return 'save:' + createHash('sha256').update(bytes).digest('hex');
 }
+
+test('first boot on the new ROM copies the previous save and game clock without changing the old slot', async () => {
+  const { CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD } = await import('./trade-signaling.js');
+  const previousKey = 'save:' + PREVIOUS_TRADE_BUILD;
+  const currentKey = 'save:' + CURRENT_TRADE_BUILD;
+  const previousSave = {
+    ram: new Uint8Array(32768).fill(0x73),
+    rtc: [0, false, 1, 2, 3, 4, 5, 6, 7, 8, 9, false, false],
+    savedAt: 1234,
+  };
+  const h = await harness({ emulatedRomHash: CURRENT_TRADE_BUILD, storedRecords: [[previousKey, previousSave]] });
+
+  await h.load('Pokemon gold(K) v0.2.gbc', rom('FIRST'));
+
+  assert.equal(h.latest().ram[0], 0x73);
+  assert.deepEqual([...h.latest().rtc], previousSave.rtc);
+  assert.equal(h.element('screen').dataset.tradeBuild, CURRENT_TRADE_BUILD);
+  assert.deepEqual(h.records.get(previousKey), previousSave);
+  assert.deepEqual(h.records.get(currentKey), previousSave);
+  assert.equal(h.writes.some(write => write.key === previousKey), false);
+});
+
+test('save migration cannot replace existing progress in the new ROM', async t => {
+  const { CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD } = await import('./trade-signaling.js');
+  const previousKey = 'save:' + PREVIOUS_TRADE_BUILD;
+  const currentKey = 'save:' + CURRENT_TRADE_BUILD;
+  const previous = { ram: new Uint8Array(32768).fill(0x73), savedAt: 1234 };
+  const current = { ram: new Uint8Array(32768).fill(0x84), savedAt: 5678 };
+
+  for (const concurrent of [false, true]) {
+    await t.test(concurrent ? 'created by another tab during migration' : 'stored before the ROM is opened', async () => {
+      const records = [[previousKey, previous]];
+      if (!concurrent) records.push([currentKey, current]);
+      const h = await harness({ emulatedRomHash: CURRENT_TRADE_BUILD, storedRecords: records });
+      if (concurrent) h.controls.onWrite = key => {
+        if (key === currentKey) h.records.set(key, current);
+      };
+
+      await h.load('Pokemon gold(K) v0.2.gbc', rom('FIRST'));
+
+      assert.equal(h.latest().ram[0], 0x84);
+      assert.deepEqual(h.records.get(currentKey), current);
+      assert.deepEqual(h.records.get(previousKey), previous);
+      assert.equal(h.writes.some(write => write.key === currentKey), false);
+    });
+  }
+});
 
 test('a failed flush preserves the running ROM and allows recovery through file export', async () => {
   const h = await harness();
@@ -449,7 +506,7 @@ test('the verified Korean ROM opens the online list once per accepted trade prom
 });
 
 test('only a matching ROM may connect and a broken link never persists its partial SRAM', async () => {
-  const hash = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
+  const { CURRENT_TRADE_BUILD: hash, PREVIOUS_TRADE_BUILD } = await import('./trade-signaling.js');
   let stopped = false;
   const h = await harness({
     emulatedRomHash: hash,
@@ -472,7 +529,8 @@ test('only a matching ROM may connect and a broken link never persists its parti
   channel.send = () => {};
   const finish = reason => outcomes.push(reason);
   await h.document.emit('player-trade-connect', { detail: { channel, initiator: true, romHash: 'wrong-build', finish } });
-  assert.deepEqual(outcomes, ['unavailable']);
+  await h.document.emit('player-trade-connect', { detail: { channel, initiator: true, romHash: PREVIOUS_TRADE_BUILD, finish } });
+  assert.deepEqual(outcomes, ['unavailable', 'unavailable']);
   await h.document.emit('player-trade-connect', { detail: { channel, initiator: true, romHash: hash, finish } });
   await h.settle();
   await channel.emit('message', { data: '{"type":"link-ready"}' });
@@ -484,7 +542,7 @@ test('only a matching ROM may connect and a broken link never persists its parti
   assert.equal(h.latest().ram[0], 0x11);
   assert.equal(h.records.get('save:' + hash).ram[0], 0x11);
   assert.equal(stopped, true);
-  assert.deepEqual(outcomes, ['unavailable', 'failed']);
+  assert.deepEqual(outcomes, ['unavailable', 'unavailable', 'failed']);
 });
 
 test('a different ROM is not announced as trade-compatible', async () => {

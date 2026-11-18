@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SUPPORTED_TRADE_BUILD, acceptTradeInvite, closeTradeInvite, connectTrade, sendTradeInvite, watchTradeInvite,
+  CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD, acceptTradeInvite, closeTradeInvite, connectTrade, sendTradeInvite, watchTradeInvite,
 } from './trade-signaling.js';
 
 test('a mismatched ROM is refused before sending, accepting or opening the trade', async () => {
@@ -9,6 +9,9 @@ test('a mismatched ROM is refused before sending, accepting or opening the trade
   await assert.rejects(sendTradeInvite(options), /개조판/);
   await assert.rejects(acceptTradeInvite(options), /개조판/);
   await assert.rejects(connectTrade(options), /개조판/);
+  const crossBuild = { romHash: CURRENT_TRADE_BUILD, invite: { romHash: PREVIOUS_TRADE_BUILD } };
+  await assert.rejects(acceptTradeInvite(crossBuild), /개조판/);
+  await assert.rejects(connectTrade(crossBuild), /개조판/);
 });
 
 test('trade actions use only the selected recipient mailbox and clean up its matching offer', async () => {
@@ -32,10 +35,13 @@ test('trade actions use only the selected recipient mailbox and clean up its mat
       });
     },
   };
-  const args = { db: {}, data, fromUid: 'alice', toUid: 'bob', romHash: SUPPORTED_TRADE_BUILD };
+  const args = { db: {}, data, fromUid: 'alice', toUid: 'bob', romHash: CURRENT_TRADE_BUILD };
   const invite = await sendTradeInvite(args);
   assert.match(invite.nonce, /^[0-9a-f]{32}$/);
   await assert.rejects(acceptTradeInvite({ ...args, invite: { ...invite, nonce: 'outdated' } }), /바뀌었습니다/);
+  current = { ...current, romHash: PREVIOUS_TRADE_BUILD };
+  await assert.rejects(acceptTradeInvite({ ...args, invite }), /바뀌었습니다/);
+  current = { ...current, romHash: CURRENT_TRADE_BUILD };
   const accepted = await acceptTradeInvite({ ...args, invite });
   assert.equal(accepted.status, 'accepted');
   current = { ...accepted, status: 'offered' };
@@ -70,7 +76,7 @@ test('the inbox does not expose locally pending or cached invitations to UI', ()
 });
 
 test('the accepted offer and answer open two reliable channels without putting game data in Firestore', async t => {
-  const invite = { fromUid: 'alice', toUid: 'bob', nonce: 'matching', romHash: SUPPORTED_TRADE_BUILD, createdAt: 123, status: 'accepted' };
+  const invite = { fromUid: 'alice', toUid: 'bob', nonce: 'matching', romHash: PREVIOUS_TRADE_BUILD, createdAt: 123, status: 'accepted' };
   const docs = new Map([['tradeInvites/bob', invite]]);
   const listeners = new Map();
   const channels = [];
@@ -140,7 +146,7 @@ test('the accepted offer and answer open two reliable channels without putting g
     async updateDoc(key, value) { publish(key, { ...docs.get(key), ...value }); },
   };
 
-  const options = { db: {}, data, invite, romHash: SUPPORTED_TRADE_BUILD };
+  const options = { db: {}, data, invite, romHash: PREVIOUS_TRADE_BUILD };
   const [initiating, receiving] = await Promise.all([
     connectTrade({ ...options, uid: 'alice' }),
     connectTrade({ ...options, uid: 'bob' }),
