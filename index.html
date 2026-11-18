@@ -11,10 +11,10 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./style.css?v=1.4.1">
+  <link rel="stylesheet" href="./style.css?v=1.5.0">
   <script src="./vendor/GameBoyCore.js" defer></script>
   <script type="module" src="./app.js?v=1.4.1"></script>
-  <script type="module" src="./chat.js?v=1.4.1"></script>
+  <script type="module" src="./chat.js?v=1.5.0"></script>
 </head>
 <body>
   <main>
@@ -108,8 +108,16 @@
         <button id="chat-resend" type="button">인증 메일 다시 보내기</button>
         <button id="chat-logout" type="button">로그아웃</button>
       </div>
+      <form id="chat-profile" class="chat-form" hidden>
+        <label for="chat-nickname">닉네임</label>
+        <p id="chat-nickname-help">한글 6자 또는 영문 12자까지. 섞어 쓰면 한글 1자를 영문 2자로 계산합니다. 한 번 등록한 이름은 바꿀 수 없습니다.</p>
+        <div class="chat-compose">
+          <input id="chat-nickname" aria-describedby="chat-nickname-help" maxlength="12" autocomplete="nickname" required>
+          <button type="submit" class="primary">등록</button>
+        </div>
+      </form>
       <div id="chat-room" hidden>
-        <ol id="chat-messages" class="chat-messages" aria-label="최근 메시지"></ol>
+        <ol id="chat-messages" class="chat-messages" aria-label="최근 메시지 100개"></ol>
         <form id="chat-send" class="chat-compose">
           <input id="chat-message" aria-label="채팅 메시지" placeholder="메시지 입력" maxlength="240" required>
           <button type="submit" class="primary">보내기</button>

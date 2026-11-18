@@ -10,38 +10,125 @@ service cloud.firestore {
         && request.auth.token.firebase.sign_in_provider == 'password';
     }
 
-    function rateMatches(messageId) {
-      let rate = getAfter(/databases/$(database)/documents/chatRate/$(request.auth.uid)).data;
-      return rate.messageId == messageId && rate.createdAt == request.time;
+    function profilePath(uid) {
+      return /databases/$(database)/documents/chatProfiles/$(uid);
     }
 
-    function newMessageMatches(uid, messageId) {
-      let path = /databases/$(database)/documents/chatMessages/$(messageId);
-      let message = getAfter(path).data;
-      return !exists(path) && message.uid == uid && message.createdAt == request.time;
+    function namePath(key) {
+      return /databases/$(database)/documents/chatNames/$(key);
+    }
+
+    function validNickname(nickname) {
+      return nickname is string
+        && nickname.matches('[A-Za-z가-힣]+')
+        && nickname.replace('[가-힣]', 'aa').size() <= 12;
+    }
+
+    function newNameOwnedBy(uid, key) {
+      let name = namePath(key);
+      return !exists(name) && getAfter(name).data.uid == uid;
+    }
+
+    function newProfileMatches(uid, key) {
+      let profile = profilePath(uid);
+      return !exists(profile) && getAfter(profile).data.nicknameKey == key;
+    }
+
+    match /chatProfiles/{uid} {
+      allow get: if eligible() && request.auth.uid == uid;
+      allow create: if eligible()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['nickname', 'nicknameKey'])
+        && validNickname(request.resource.data.nickname)
+        && request.resource.data.nicknameKey == request.resource.data.nickname.lower()
+        && newNameOwnedBy(uid, request.resource.data.nicknameKey);
+    }
+
+    match /chatNames/{key} {
+      allow create: if eligible()
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && newProfileMatches(request.auth.uid, key);
+    }
+
+    function statePath() {
+      return /databases/$(database)/documents/chatState/current;
+    }
+
+    function validSeq(seq) {
+      return seq is int && seq >= 1 && seq <= 9007199254740991;
+    }
+
+    function slotId(seq) {
+      return 'm' + string(seq % 100);
+    }
+
+    function advancesTo(seq) {
+      let before = get(statePath());
+      let after = getAfter(statePath());
+      return seq == (before == null ? 1 : before.data.seq + 1)
+        && after.data.seq == seq;
+    }
+
+    function rateMatches(messageId, seq) {
+      let rate = getAfter(/databases/$(database)/documents/chatRate/$(request.auth.uid)).data;
+      return rate.messageId == messageId && rate.seq == seq && rate.createdAt == request.time;
+    }
+
+    function messageMatches(uid, seq) {
+      let id = slotId(seq);
+      let message = getAfter(/databases/$(database)/documents/chatMessages/$(id)).data;
+      return message.uid == uid && message.seq == seq && message.createdAt == request.time;
+    }
+
+    function validState(previousSeq) {
+      let state = request.resource.data;
+      return eligible()
+        && state.keys().hasOnly(['seq'])
+        && validSeq(state.seq)
+        && state.seq == previousSeq + 1
+        && messageMatches(request.auth.uid, state.seq);
+    }
+
+    match /chatState/current {
+      allow get: if eligible();
+      allow create: if validState(0);
+      allow update: if validState(resource.data.seq);
     }
 
     function validRate(uid) {
       let rate = request.resource.data;
       return eligible()
         && request.auth.uid == uid
-        && rate.keys().hasOnly(['messageId', 'createdAt'])
-        && rate.messageId is string
-        && rate.messageId.matches('[A-Za-z0-9]{20}')
+        && rate.keys().hasOnly(['messageId', 'createdAt', 'seq'])
+        && validSeq(rate.seq)
+        && rate.messageId == slotId(rate.seq)
         && rate.createdAt == request.time
-        && newMessageMatches(uid, rate.messageId);
+        && advancesTo(rate.seq)
+        && messageMatches(uid, rate.seq);
+    }
+
+    function validMessage(messageId) {
+      let message = request.resource.data;
+      return eligible()
+        && message.keys().hasOnly(['uid', 'nickname', 'body', 'createdAt', 'seq'])
+        && message.uid == request.auth.uid
+        && message.nickname == get(profilePath(request.auth.uid)).data.nickname
+        && message.body is string
+        && message.body.size() >= 1
+        && message.body.size() <= 240
+        && message.createdAt == request.time
+        && validSeq(message.seq)
+        && messageId == slotId(message.seq)
+        && advancesTo(message.seq)
+        && rateMatches(messageId, message.seq);
     }
 
     match /chatMessages/{messageId} {
-      allow list: if eligible() && request.query.limit <= 40;
-      allow create: if eligible()
-        && request.resource.data.keys().hasOnly(['uid', 'body', 'createdAt'])
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.body is string
-        && request.resource.data.body.size() >= 1
-        && request.resource.data.body.size() <= 240
-        && request.resource.data.createdAt == request.time
-        && rateMatches(messageId);
+      allow list: if eligible() && request.query.limit <= 100;
+      allow create: if validMessage(messageId);
+      allow update: if validMessage(messageId)
+        && request.resource.data.seq == resource.data.seq + 100;
     }
 
     match /chatRate/{uid} {

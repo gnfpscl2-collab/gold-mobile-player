@@ -1,9 +1,9 @@
 {
   "name": "gold-mobile-player",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test app.test.cjs files.test.js audio.test.js"
+    "test": "node --test app.test.cjs files.test.js audio.test.js chat.test.js"
   }
 }

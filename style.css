@@ -110,6 +110,8 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated;image-rend
 .chat summary{font-size:12px}
 .chat-form{display:grid;gap:6px;margin-bottom:8px}
 .chat-form label{color:var(--ink);font-weight:600}
+#chat-profile{margin-top:10px}
+#chat-nickname-help{margin:0}
 .chat input{min-width:0;width:100%;min-height:34px;padding:6px 8px;border:1px solid #c7cebf;border-radius:5px;color:var(--ink);background:#fffef9;font-size:16px}
 .chat-actions{display:flex;flex-wrap:wrap;gap:4px}
 .chat-messages{max-height:220px;overflow:auto;margin:8px 0;padding:0;list-style:none}
