@@ -1,6 +1,6 @@
 import { validateRom, validateSave, speedLimit, clampSpeed, baseSaveName, isRomFilename } from './files.js?v=1.4.0';
 import { readLocal, writeLocal } from './storage.js';
-import { resumeAudio, suspendAudio, setOutputMuted } from './audio.js';
+import { resumeAudio, setOutputMuted } from './audio.js?v=1.4.1';
 
 const byId = id => document.getElementById(id);
 const canvas = byId('screen');
@@ -9,6 +9,7 @@ const romList = byId('rom-list');
 const romExtensions = romInput.accept;
 const speed = byId('speed');
 const sound = byId('sound');
+sound.checked = true;
 const menu = byId('player-menu');
 const screenSize = byId('screen-size');
 const mobileMax = speedLimit({ userAgent: navigator.userAgent, platform: navigator.platform,
@@ -56,15 +57,14 @@ function stop() {
   timer = undefined;
   if (core) core.stopEmulator |= 2;
   releaseKeys();
-  suspendAudio();
+  setOutputMuted(true);
   byId('play-state').textContent = core ? '일시정지' : '대기 중';
 }
 
 function play() {
   if (!core || busy || document.hidden || menu.open) return;
   clearInterval(timer);
-  setOutputMuted(!sound.checked || Number(speed.value) > 1);
-  if (sound.checked && Number(speed.value) === 1) resumeAudio();
+  setOutputMuted(!sound.checked);
   core.stopEmulator &= 1;
   timer = setInterval(() => {
     try {
@@ -77,6 +77,13 @@ function play() {
     catch { stop(); status('게임 실행 중 오류가 발생했습니다. 마지막 세이브로 다시 열어 주세요.', true); }
   }, settings[6]);
   byId('play-state').textContent = '플레이 중';
+}
+
+// Open the audio context inside the browser's activation, before file reads or dialog callbacks.
+for (const type of ['click', 'touchend', 'keydown']) {
+  document.addEventListener(type, event => {
+    if (event.isTrusted && sound.checked && !document.hidden) resumeAudio();
+  }, { capture: true });
 }
 
 function snapshot() {
@@ -395,19 +402,15 @@ speed.addEventListener('change', () => {
   const value = clampSpeed(speed.value, mobileMax);
   speed.value = String(value);
   byId('speed-badge').textContent = value + '배속';
-  setOutputMuted(!sound.checked || value > 1);
   setPlaybackSpeed(core, value);
   if (timer) play();
   savePreferences();
 });
 
-sound.addEventListener('change', async () => {
-  if (sound.checked && !await resumeAudio()) {
-    sound.checked = false;
-    status('브라우저에서 소리를 시작하지 못했습니다. 소리 켜기를 다시 눌러 주세요.', true);
-  }
+sound.addEventListener('change', () => {
   if (sound.checked && !settings[0]) { settings[0] = true; core?.initSound(); }
-  setOutputMuted(!sound.checked || Number(speed.value) > 1);
+  setOutputMuted(!timer || !sound.checked);
+  if (sound.checked) resumeAudio();
   savePreferences();
 });
 
@@ -489,6 +492,7 @@ byId('install').addEventListener('click', async () => {
 async function initialize() {
   try {
     const preferences = await readLocal('settings');
+    sound.checked = preferences?.sound !== false;
     const value = clampSpeed(preferences?.speed || 1, mobileMax);
     speed.value = [...speed.options].some(option => Number(option.value) === value) ? String(value) : '1';
     byId('speed-badge').textContent = speed.value + '배속';

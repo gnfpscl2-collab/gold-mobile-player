@@ -118,6 +118,7 @@ async function harness({ apple = false, preferences, storedRecords } = {}) {
   const writes = [];
   const reads = [];
   const instances = [];
+  const audio = { muted: true, resumes: 0 };
   const controls = { failRead: null, failWrite: null, onWrite: null, confirm: true,
     failCapture: false, failRestore: false };
   const fetches = [];
@@ -179,7 +180,8 @@ async function harness({ apple = false, preferences, storedRecords } = {}) {
       revokeObjectURL(value) { blobs.delete(value); },
     },
     confirm: () => controls.confirm,
-    resumeAudio: async () => true, suspendAudio() {}, setOutputMuted() {},
+    resumeAudio: async () => { audio.resumes++; return true; },
+    setOutputMuted(value) { audio.muted = value; },
     setInterval(callback, period) { const id = ++intervalId; intervals.set(id, { callback, period }); return id; },
     clearInterval(id) { intervals.delete(id); },
     setTimeout(callback, delay) { const id = ++timeoutId; timeouts.set(id, { callback, delay }); return id; },
@@ -202,7 +204,7 @@ async function harness({ apple = false, preferences, storedRecords } = {}) {
   const settle = () => new Promise(resolve => setImmediate(resolve));
   await settle();
   return {
-    element, document, window, navigator, downloads, records, writes, reads, instances, controls, settle, styles, fetches, pickerFilters,
+    element, document, window, navigator, downloads, records, writes, reads, instances, controls, settle, styles, fetches, pickerFilters, audio,
     button(key) { return buttons[key]; },
     playPeriod() { return [...intervals.values()].find(interval => interval.period < 5000)?.period; },
     isPlaying() { return this.playPeriod() !== undefined; },
@@ -519,6 +521,45 @@ test('ROM file picker uses the two extensions and restores the filter after all 
   await h.pickFiles();
   assert.equal(h.instances.length, 0);
   assert.deepEqual(h.fetches, []);
+});
+
+test('sound is enabled for new games and unlocks from a trusted gesture before file reads', async () => {
+  const h = await harness();
+  assert.equal(h.element('sound').checked, true);
+  assert.equal(h.audio.muted, true);
+  await h.document.emit('click', { isTrusted: false });
+  assert.equal(h.audio.resumes, 0);
+  await h.document.emit('click', { isTrusted: true });
+  assert.equal(h.audio.resumes, 1);
+  await h.load('game.gb', rom('SOUND'));
+  assert.equal(h.audio.muted, false);
+  await h.element('open-menu').emit('click');
+  assert.equal(h.audio.muted, true);
+  await h.element('close-menu').emit('click');
+  await h.settle();
+  assert.equal(h.audio.muted, false);
+  assert.equal(h.audio.resumes, 1);
+});
+
+test('the audio preference is restored and sound stays enabled across speed changes', async () => {
+  const quiet = await harness({ preferences: { sound: false } });
+  await quiet.load('game.gb', rom('QUIET'));
+  assert.equal(quiet.element('sound').checked, false);
+  assert.equal(quiet.audio.muted, true);
+
+  const audible = await harness({ preferences: { sound: true, speed: 5 } });
+  await audible.load('game.gb', rom('AUDIBLE'));
+  assert.equal(audible.element('sound').checked, true);
+  assert.equal(audible.audio.muted, false);
+  for (const speed of ['1', '1.5', '2', '3', '4', '5', '10']) {
+    audible.element('speed').value = speed;
+    await audible.element('speed').emit('change');
+    assert.equal(audible.latest().speed, Number(speed));
+    assert.equal(audible.audio.muted, false);
+  }
+  audible.element('sound').checked = false;
+  await audible.element('sound').emit('change');
+  assert.equal(audible.audio.muted, true);
 });
 
 test('multiple selections list only ROM extensions and read only the chosen ROM', async () => {

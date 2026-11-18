@@ -22,15 +22,6 @@ export async function resumeAudio() {
   }
 }
 
-export async function suspendAudio() {
-  active?.clear();
-  try {
-    if (context?.state === 'running') await context.suspend();
-  } catch {
-    // A browser can interrupt audio while the app enters the background.
-  }
-}
-
 export function setOutputMuted(muted) {
   outputMuted = Boolean(muted);
   if (outputMuted) active?.clear();
@@ -72,17 +63,20 @@ class XAudioServer {
     const frames = Math.floor(samples.length / this.channels);
     if (!frames) return;
     const now = this.context.currentTime;
-    const start = Math.max(this.nextTime, now + 0.02);
+    const start = this.nextTime > now ? this.nextTime : now + 0.02;
+    const end = start + frames / this.sampleRate;
     // Bound latency when a slow tab resumes or the core produces a burst of audio.
-    if (start + frames / this.sampleRate - now > 0.25) return;
+    if (end - now > 0.25) return;
     try {
-      const buffer = this.context.createBuffer(this.channels, frames, this.sampleRate);
+      // High emulation speeds can generate PCM beyond the browser's supported buffer rates.
+      const buffer = this.context.createBuffer(this.channels, frames, Math.min(this.sampleRate, 48000));
       for (let channel = 0; channel < this.channels; channel++) {
         const target = buffer.getChannelData(channel);
         for (let frame = 0; frame < frames; frame++) target[frame] = samples[frame * this.channels + channel];
       }
       const source = this.context.createBufferSource();
       source.buffer = buffer;
+      source.playbackRate.value = this.sampleRate / buffer.sampleRate;
       source.connect(this.gain);
       source.onended = () => {
         this.sources.delete(source);
@@ -90,7 +84,7 @@ class XAudioServer {
       };
       source.start(start);
       this.sources.add(source);
-      this.nextTime = start + buffer.duration;
+      this.nextTime = end;
     } catch {
       this.clear();
     }

@@ -1,0 +1,53 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function eligible() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string
+        && request.auth.token.email.lower().matches('[^@]+@(gmail[.]com|naver[.]com)')
+        && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
+    function rateMatches(messageId) {
+      let rate = getAfter(/databases/$(database)/documents/chatRate/$(request.auth.uid)).data;
+      return rate.messageId == messageId && rate.createdAt == request.time;
+    }
+
+    function newMessageMatches(uid, messageId) {
+      let path = /databases/$(database)/documents/chatMessages/$(messageId);
+      let message = getAfter(path).data;
+      return !exists(path) && message.uid == uid && message.createdAt == request.time;
+    }
+
+    function validRate(uid) {
+      let rate = request.resource.data;
+      return eligible()
+        && request.auth.uid == uid
+        && rate.keys().hasOnly(['messageId', 'createdAt'])
+        && rate.messageId is string
+        && rate.messageId.matches('[A-Za-z0-9]{20}')
+        && rate.createdAt == request.time
+        && newMessageMatches(uid, rate.messageId);
+    }
+
+    match /chatMessages/{messageId} {
+      allow list: if eligible() && request.query.limit <= 40;
+      allow create: if eligible()
+        && request.resource.data.keys().hasOnly(['uid', 'body', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.body is string
+        && request.resource.data.body.size() >= 1
+        && request.resource.data.body.size() <= 240
+        && request.resource.data.createdAt == request.time
+        && rateMatches(messageId);
+    }
+
+    match /chatRate/{uid} {
+      allow create: if validRate(uid);
+      allow update: if validRate(uid)
+        && request.time >= resource.data.createdAt + duration.value(3, 's');
+    }
+  }
+}

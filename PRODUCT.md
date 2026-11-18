@@ -15,7 +15,7 @@ The user plays their own Korean Gold modified ROM on a phone and wants a separat
 - The player links to the user-designated Drive download and opens ROM files selected from the device. Device ROMs and saves are not uploaded by the player or committed to GitHub.
 
 ## Scope choices
-One player screen, standard touch direction/A/B/Start/Select controls, keyboard support, pause, sound, speed and save controls. Use a proven MIT core and the existing emulator screen hierarchy. No accounts, cloud saves, achievements, ROM catalog or native app-store submission.
+One player screen with touch controls, keyboard support, pause, sound, speed and local saves. Use the existing MIT core. Shared chat requires a verified Gmail or Naver address. Playing and saving work independently of chat.
 
 ## Surface
 Operate mode for player controls; the original ROM artwork is the visual focus. Keep the incumbent emulator canvas and familiar handheld control arrangement. Use quiet neutral UI with one gold action accent. These routine UI choices are inferred from the functional brief; no separate brand has been requested.
