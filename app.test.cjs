@@ -6,7 +6,6 @@ const vm = require('node:vm');
 const { webcrypto, createHash } = require('node:crypto');
 const { File } = require('node:buffer');
 const { pathToFileURL } = require('node:url');
-const DRIVE_HASH = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
 
 function deferred() {
   let resolve;
@@ -32,20 +31,6 @@ function file(name, bytes) {
   return { name, size: bytes.length, arrayBuffer: async () => bytes.slice().buffer };
 }
 
-function driveResponse(bytes, status = 200, contentType = 'application/octet-stream') {
-  let read = false;
-  return { ok: status >= 200 && status < 300, status,
-    headers: { get: name => name.toLowerCase() === 'content-length' ? String(bytes.length) : contentType },
-    body: { getReader: () => ({
-      async read() {
-        if (read) return { done: true };
-        read = true;
-        return { done: false, value: bytes.slice() };
-      },
-      releaseLock() {},
-    }) } };
-}
-
 class Target {
   constructor() {
     this.listeners = new Map();
@@ -63,7 +48,11 @@ class Target {
     this.checked = false;
     this.files = [];
     this.open = false;
+    this.children = [];
   }
+  append(child) { this.children.push(child); }
+  replaceChildren() { this.children = []; }
+  click() { return this.emit('click'); }
   closest() { return null; }
   setPointerCapture() {}
   showModal() { this.open = true; }
@@ -83,7 +72,7 @@ class Target {
   }
 }
 
-async function harness({ apple = false, preferences, driveApiKey = 'test-browser-key', storedRecords } = {}) {
+async function harness({ apple = false, preferences, storedRecords } = {}) {
   const validators = await import(pathToFileURL(path.join(__dirname, 'files.js')).href);
   const source = await fs.readFile(path.join(__dirname, 'app.js'), 'utf8');
   const elements = new Map();
@@ -92,6 +81,10 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
     return elements.get(id);
   };
   const speed = element('speed');
+  const pickerFilters = [];
+  const romInput = element('rom-input');
+  romInput.accept = '.gb,.gbc';
+  romInput.click = () => pickerFilters.push(romInput.accept);
   element('save-state').disabled = true;
   element('load-state').disabled = true;
   speed.value = '1';
@@ -113,7 +106,7 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
   document.body = { append() {} };
   const downloads = [];
   const blobs = new Map();
-  document.createElement = () => ({
+  document.createElement = tag => tag !== 'a' ? new Target() : ({
     click() { downloads.push({ name: this.download, file: blobs.get(this.href) }); },
     remove() {},
   });
@@ -126,7 +119,7 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
   const reads = [];
   const instances = [];
   const controls = { failRead: null, failWrite: null, onWrite: null, confirm: true,
-    fetch: null, driveDigestBytes: null, failCapture: false, failRestore: false };
+    failCapture: false, failRestore: false };
   const fetches = [];
   const intervals = new Map();
   const timeouts = new Map();
@@ -175,21 +168,12 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
     run() { this.sampledKeys.push([...this.downKeys]); }
   }
   const context = vm.createContext({
-    ...validators, document, window, GameBoyCore: Core, driveApiKey,
+    ...validators, document, window, GameBoyCore: Core,
     navigator,
     matchMedia: () => ({ matches: false }),
-    crypto: { subtle: { async digest(algorithm, bytes) {
-      if (controls.driveDigestBytes && Buffer.from(bytes).equals(Buffer.from(controls.driveDigestBytes))) {
-        return Uint8Array.from(Buffer.from(DRIVE_HASH, 'hex')).buffer;
-      }
-      return webcrypto.subtle.digest(algorithm, bytes);
-    } } },
-    File, Uint8Array, ArrayBuffer, Date, console, AbortController, structuredClone,
-    async fetch(url, options) {
-      fetches.push({ url, options });
-      if (!controls.fetch) throw new Error('unexpected network request');
-      return controls.fetch(url, options);
-    },
+    crypto: webcrypto,
+    File, Uint8Array, ArrayBuffer, Date, console, structuredClone,
+    async fetch(url) { fetches.push(url); throw new Error('unexpected network request'); },
     URL: {
       createObjectURL(value) { const url = 'blob:test/' + blobs.size; blobs.set(url, value); return url; },
       revokeObjectURL(value) { blobs.delete(value); },
@@ -218,7 +202,7 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
   const settle = () => new Promise(resolve => setImmediate(resolve));
   await settle();
   return {
-    element, document, window, navigator, downloads, records, writes, reads, instances, controls, settle, styles, fetches,
+    element, document, window, navigator, downloads, records, writes, reads, instances, controls, settle, styles, fetches, pickerFilters,
     button(key) { return buttons[key]; },
     playPeriod() { return [...intervals.values()].find(interval => interval.period < 5000)?.period; },
     isPlaying() { return this.playPeriod() !== undefined; },
@@ -226,7 +210,6 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
       const interval = [...intervals.values()].find(interval => interval.period < 5000);
       for (let i = 0; i < count; i++) interval.callback();
     },
-    hasTimeout(delay) { return [...timeouts.values()].some(timeout => timeout.delay === delay); },
     async flushTimeouts(delay) {
       for (const [id, timeout] of timeouts) if (timeout.delay === delay) {
         timeouts.delete(id);
@@ -235,9 +218,11 @@ async function harness({ apple = false, preferences, driveApiKey = 'test-browser
       await settle();
     },
     async load(name, bytes) {
-      const input = element('rom-input');
-      input.files = [file(name, bytes)];
-      await input.emit('change');
+      await this.pickFiles(file(name, bytes));
+    },
+    async pickFiles(...files) {
+      romInput.files = files;
+      await romInput.emit('change');
       await settle();
     },
     async importSave(bytes) {
@@ -525,122 +510,73 @@ test('screen size persists with the other settings and restores on the next laun
   assert.equal(reopened.records.get('settings').screenSize, 100);
 });
 
-test('verified Drive ROM uses the chosen filename and preserves an existing save by content hash', async () => {
+test('ROM file picker uses the two extensions and restores the filter after all files', async () => {
   const h = await harness();
-  const bytes = rom('DRIVE');
-  // The browser integration checks real ROM bytes; unit fixtures contain no copyrighted game data.
-  h.controls.driveDigestBytes = bytes;
+  await h.element('open-rom').emit('click');
+  await h.element('open-all-roms').emit('click');
+  await h.element('open-rom').emit('click');
+  assert.deepEqual(h.pickerFilters, ['.gb,.gbc', '', '.gb,.gbc']);
+  await h.pickFiles();
+  assert.equal(h.instances.length, 0);
+  assert.deepEqual(h.fetches, []);
+});
+
+test('multiple selections list only ROM extensions and read only the chosen ROM', async () => {
+  const h = await harness();
+  await h.element('open-menu').emit('click');
+  const ignored = { name: 'save.sav', arrayBuffer() { throw new Error('not a ROM'); } };
+  const first = { name: 'first.gb', arrayBuffer() { throw new Error('not chosen'); } };
+  await h.pickFiles(first, ignored, file('second.GBC', rom('SECOND')));
+  const list = h.element('rom-list');
+  assert.equal(list.hidden, false);
+  const buttons = list.children.map(row => row.children[0]);
+  assert.deepEqual(buttons.map(button => button.textContent), ['first.gb', 'second.GBC']);
+  assert.equal(h.instances.length, 0);
+  await buttons[1].click();
+  assert.equal(h.element('game-name').textContent, 'SECOND');
+  assert.equal(list.hidden, true);
+  assert.deepEqual(h.fetches, []);
+});
+
+test('an unsupported extension or corrupt local ROM preserves the loaded game', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  h.latest().ram[0] = 0x75;
+  await h.pickFiles(file('bad.sav', new Uint8Array(32768)));
+  assert.match(h.element('status').textContent, /gbc/);
+  await h.pickFiles(file('bad.gbc', new Uint8Array(32768)));
+  assert.match(h.element('status').textContent, /헤더/);
+  assert.equal(h.instances.length, 1);
+  await h.autosave();
+  assert.equal(h.records.get(saveKey(rom('FIRST'))).ram[0], 0x75);
+});
+
+test('a downloaded ROM with identical bytes restores its existing save even with a new filename', async () => {
+  const h = await harness();
+  const bytes = rom('LOCAL');
   await h.load('previous-name.gbc', bytes);
   h.latest().ram[0] = 0x73;
-  h.controls.fetch = async () => driveResponse(bytes);
   await h.element('open-menu').emit('click');
-  await h.element('open-drive').emit('click');
+  await h.load('Pokemon gold(K).gbc', bytes);
   assert.equal(h.instances.length, 2);
   assert.equal(h.latest().ram[0], 0x73);
-  assert.equal(h.element('file-name').textContent, 'Pokemon gold(K).gbc');
   assert.equal(h.records.get('current').name, 'Pokemon gold(K).gbc');
-  assert.equal(h.records.get('save:' + DRIVE_HASH).ram[0], 0x73);
+  assert.equal(h.records.get(saveKey(bytes)).ram[0], 0x73);
   assert.equal(h.element('player-menu').open, false);
   assert.equal(h.isPlaying(), true);
-  assert.equal(h.fetches.length, 1);
-  const request = h.fetches[0];
-  assert.equal(request.url, 'https://www.googleapis.com/drive/v3/files/1ay2KZ--rKmdbstyPXaXmDZe9OJyDqxoJ?alt=media');
-  assert.doesNotMatch(request.url, /key=/);
-  assert.equal(request.options.headers['X-Goog-Api-Key'], 'test-browser-key');
-  assert.equal(request.options.mode, 'cors');
-  assert.equal(request.options.credentials, 'omit');
-  assert.equal(request.options.referrerPolicy, 'origin');
-  assert.equal(typeof request.options.signal.addEventListener, 'function');
-  assert.equal(h.element('open-drive').disabled, false);
-  assert.equal(h.hasTimeout(30000), false, 'completed download clears its abort timer');
+  assert.deepEqual(h.fetches, []);
 });
 
-test('Drive network, HTTP, size, hash and header failures preserve the current ROM and save', async () => {
-  const badHeader = new Uint8Array(2097152);
-  const failures = [
-    { fetch: async () => { throw new Error('network unavailable'); } },
-    { fetch: async () => driveResponse(new Uint8Array(), 403) },
-    { fetch: async () => driveResponse(new Uint8Array(2097152), 200, 'text/html') },
-    { fetch: async () => driveResponse(new Uint8Array(1024)) },
-    { fetch: async () => driveResponse(new Uint8Array(2097153)) },
-    { fetch: async () => driveResponse(rom('WRONGHASH')) },
-    { fetch: async () => driveResponse(badHeader), digestBytes: badHeader },
-  ];
-  for (const failure of failures) {
-    const h = await harness();
-    const first = rom('FIRST');
-    await h.load('first.gbc', first);
-    h.latest().ram[0] = 0x75;
-    h.controls.fetch = failure.fetch;
-    h.controls.driveDigestBytes = failure.digestBytes;
-    await h.element('open-menu').emit('click');
-    await h.element('open-drive').emit('click');
-    assert.equal(h.instances.length, 1);
-    assert.equal(h.latest().ram[0], 0x75);
-    assert.equal(h.records.get('current').name, 'first.gbc');
-    assert.equal(h.element('status').hidden, false);
-    assert.equal(h.element('open-drive').disabled, false);
-    await h.autosave();
-    assert.equal(h.records.get(saveKey(first)).ram[0], 0x75);
-    await h.element('close-menu').emit('click');
-    assert.equal(h.isPlaying(), true);
-  }
-});
-
-test('missing Drive configuration makes no request and leaves the current ROM intact', async () => {
-  const h = await harness({ driveApiKey: '' });
-  await h.load('first.gbc', rom('FIRST'));
-  h.latest().ram[0] = 0x51;
-  await h.element('open-drive').emit('click');
-  assert.equal(h.fetches.length, 0);
-  assert.equal(h.instances.length, 1);
-  assert.equal(h.latest().ram[0], 0x51);
-  assert.equal(h.records.get('current').name, 'first.gbc');
-  assert.equal(h.element('status').hidden, false);
-  assert.equal(h.element('open-drive').disabled, false);
-  assert.equal(h.hasTimeout(30000), false);
-  assert.equal(h.isPlaying(), true);
-});
-
-test('a pending Drive download blocks ROM replacement and resumes after a closed menu', async () => {
-  const h = await harness();
-  await h.load('first.gbc', rom('FIRST'));
-  const gate = deferred();
-  const bytes = rom('DRIVE');
-  h.controls.driveDigestBytes = bytes;
-  h.controls.fetch = () => gate.promise;
+test('a ROM returned by the mobile picker resumes when the player becomes visible', async () => {
+  const h = await harness({ apple: true });
   await h.element('open-menu').emit('click');
-  const loading = h.element('open-drive').emit('click');
-  await h.settle();
-  await h.load('other.gbc', rom('OTHER'));
-  assert.equal(h.instances.length, 1);
-  await h.element('close-menu').emit('click');
+  h.document.hidden = true;
+  await h.document.emit('visibilitychange');
+  await h.pickFiles(file('picked.gb', rom('PICKED')));
   assert.equal(h.isPlaying(), false);
-  gate.resolve(driveResponse(bytes));
-  await loading;
-  assert.equal(h.instances.length, 2);
-  assert.equal(h.records.get('current').name, 'Pokemon gold(K).gbc');
+  h.document.hidden = false;
+  await h.document.emit('visibilitychange');
   assert.equal(h.isPlaying(), true);
-});
-
-test('a timed-out Drive download aborts and leaves the current game recoverable', async () => {
-  const h = await harness();
-  await h.load('first.gbc', rom('FIRST'));
-  h.latest().ram[0] = 0x67;
-  h.controls.fetch = (url, { signal }) => new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
-  });
-  const loading = h.element('open-drive').emit('click');
-  await h.settle();
-  await h.flushTimeouts(30000);
-  await loading;
-  assert.equal(h.fetches[0].options.signal.aborted, true);
-  assert.equal(h.instances.length, 1);
-  assert.equal(h.latest().ram[0], 0x67);
-  assert.equal(h.element('open-drive').disabled, false);
-  assert.equal(h.element('status').hidden, false);
-  await h.autosave();
-  assert.equal(h.records.get(saveKey(rom('FIRST'))).ram[0], 0x67);
 });
 
 test('T captures the running moment in memory and R restores CPU and RAM with the active speed', async () => {

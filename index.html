@@ -11,9 +11,9 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./style.css?v=1.3.2">
+  <link rel="stylesheet" href="./style.css?v=1.4.0">
   <script src="./vendor/GameBoyCore.js" defer></script>
-  <script type="module" src="./app.js?v=1.3.2"></script>
+  <script type="module" src="./app.js?v=1.4.0"></script>
 </head>
 <body>
   <main>
@@ -28,7 +28,7 @@
             <div class="screen-heading"><span id="game-name">GAME BOY COLOR</span><span id="play-state">대기 중</span></div>
             <div class="screen-stage">
               <canvas id="screen" width="160" height="144" aria-label="게임보이 화면"></canvas>
-              <div id="empty-screen"><strong>내 게임을 열어 보세요</strong><p>메뉴에서 ROM 파일을 열거나<br>마지막 게임을 이어서 실행하세요.</p></div>
+              <div id="empty-screen"><strong>내 게임을 열어 보세요</strong><p>ROM을 기기에 내려받은 뒤<br>메뉴에서 파일을 찾아 여세요.</p></div>
             </div>
             <div class="screen-footer"><span id="file-name" hidden></span><span id="speed-badge">1배속</span></div>
           </div>
@@ -55,9 +55,11 @@
       <div class="menu-heading"><h2 id="menu-title">메뉴</h2><button id="close-menu" class="icon-button" aria-label="메뉴 닫기" title="닫기" autofocus><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
       <div class="utility">
         <section class="file-section">
-          <button id="open-drive" class="primary wide">ROM 불러오기 <span>Drive</span></button>
-          <div class="file-actions"><button id="open-rom">기기 ROM</button><button id="restore-rom" hidden>이어 열기</button></div>
-          <input id="rom-input" type="file" accept=".gb,.gbc" hidden>
+          <p class="rom-download">ROM이 없으면 <a href="https://drive.google.com/file/d/1ay2KZ--rKmdbstyPXaXmDZe9OJyDqxoJ/view" target="_blank" rel="noopener noreferrer">Drive에서 다운로드</a>하세요.</p>
+          <button id="open-rom" class="primary wide">ROM 파일 찾기 <span>.gb · .gbc</span></button>
+          <div class="file-actions"><button id="open-all-roms">모든 파일 보기</button><button id="restore-rom" hidden>이어 열기</button></div>
+          <input id="rom-input" type="file" accept=".gb,.gbc" multiple hidden>
+          <ul id="rom-list" aria-label="선택한 ROM 목록" hidden></ul>
         </section>
         <section>
           <h2>세이브</h2>
@@ -80,14 +82,14 @@
           <p>iPhone 세이브: 공유 → 파일에 저장. Android는 다운로드 폴더를 확인하세요.</p>
           <p>브라우저·홈 화면 앱의 보관함은 다를 수 있습니다. 옮기거나 앱 데이터를 지우기 전 .sav를 내보내세요. 외부 .sav의 게임 시계는 별도 확인하세요.</p>
           <p>S 목록 · E 등록 도구 · A 선택 · B 취소</p>
-          <a class="drive-folder" href="https://drive.google.com/drive/folders/1XKYZB4nFXcgxVYA0rFTPuWG-LRPosIoN" target="_blank" rel="noopener noreferrer">Drive 폴더 열기</a>
+          <p>다운로드 폴더에서 ROM을 찾으세요. 목록에 없으면 모든 파일 보기에서 확장자나 파일명으로 검색하세요.</p>
           <p class="keyboard-help">PC: 방향키 · Z=A · X=B · S/Enter=목록 · E/Shift=등록 · T=임시 저장 · R=복원</p>
         </details>
         <button id="install" class="wide" hidden>앱 설치</button>
-        <p id="menu-status" class="status" role="status" aria-live="polite">ROM을 불러오세요.</p>
+        <p id="menu-status" class="status" role="status" aria-live="polite">다운로드한 ROM을 선택하세요.</p>
       </div>
     </dialog>
-    <footer><span>1.3.2</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
+    <footer><span>1.4.0</span><a href="https://github.com/gnfpscl2-collab/gold-mobile-player" target="_blank" rel="noopener">소스와 사용 안내</a></footer>
   </main>
 </body>
 </html>

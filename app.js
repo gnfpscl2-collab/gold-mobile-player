@@ -1,20 +1,16 @@
-import { validateRom, validateSave, speedLimit, clampSpeed, baseSaveName } from './files.js';
+import { validateRom, validateSave, speedLimit, clampSpeed, baseSaveName, isRomFilename } from './files.js?v=1.4.0';
 import { readLocal, writeLocal } from './storage.js';
 import { resumeAudio, suspendAudio, setOutputMuted } from './audio.js';
-import { driveApiKey } from './drive-config.js';
 
 const byId = id => document.getElementById(id);
 const canvas = byId('screen');
+const romInput = byId('rom-input');
+const romList = byId('rom-list');
+const romExtensions = romInput.accept;
 const speed = byId('speed');
 const sound = byId('sound');
 const menu = byId('player-menu');
 const screenSize = byId('screen-size');
-const driveRom = {
-  name: 'Pokemon gold(K).gbc',
-  url: 'https://www.googleapis.com/drive/v3/files/1ay2KZ--rKmdbstyPXaXmDZe9OJyDqxoJ?alt=media',
-  bytes: 2097152,
-  hash: '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1',
-};
 const mobileMax = speedLimit({ userAgent: navigator.userAgent, platform: navigator.platform,
   maxTouchPoints: navigator.maxTouchPoints, coarsePointer: matchMedia('(pointer: coarse)').matches });
 const appleMobile = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1);
@@ -212,10 +208,9 @@ document.addEventListener('keydown', event => {
   if (event.code === 'KeyR') { event.preventDefault(); loadTemporaryState(); }
 });
 
-async function loadRom(name, bytes, expectedHash) {
+async function loadRom(name, bytes) {
   const info = validateRom(name, bytes);
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
-  if (expectedHash && hash !== expectedHash) throw new Error('Drive 파일이 확인된 개조 ROM과 다릅니다. 올바른 파일인지 확인하거나 기기 ROM를 사용하세요.');
   stop();
   if (!await persist(true)) throw new Error('현재 게임을 기기에 보관하지 못해 전환을 중단했습니다. 세이브 파일을 저장하고 기기 저장 공간을 확인하세요.');
   const saved = await readLocal('save:' + hash);
@@ -328,61 +323,54 @@ byId('open-menu').addEventListener('click', () => {
 });
 byId('close-menu').addEventListener('click', () => menu.close());
 menu.addEventListener('close', play);
-byId('open-rom').addEventListener('click', () => { if (!busy) byId('rom-input').click(); });
-byId('open-drive').addEventListener('click', async () => {
+for (const id of ['open-rom', 'open-all-roms']) {
+  byId(id).addEventListener('click', () => {
+    if (busy) return;
+    romInput.accept = id === 'open-rom' ? romExtensions : '';
+    romInput.click();
+  });
+}
+
+async function openDeviceRom(file) {
   if (busy) return;
-  if (!driveApiKey) {
-    status('Drive 연결 준비가 완료되지 않았습니다. 기기 ROM를 사용하세요.', true);
-    return;
-  }
-  busy = true;
-  byId('open-drive').disabled = true;
-  status('Drive 불러오는 중…');
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-  try {
-    const response = await fetch(driveRom.url, {
-      mode: 'cors', credentials: 'omit', referrerPolicy: 'origin', signal: controller.signal,
-      headers: { 'X-Goog-Api-Key': driveApiKey },
-    });
-    if (!response.ok || response.headers.get('content-type')?.includes('text/html')) throw new Error('Drive 파일을 내려받을 수 없습니다. 도움말의 Drive 폴더에서 다운로드한 뒤 기기 ROM를 사용하세요.');
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error('이 브라우저에서는 Drive 직접 불러오기를 지원하지 않습니다. 기기 ROM를 사용하세요.');
-    const bytes = new Uint8Array(driveRom.bytes);
-    let length = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (length + value.length > bytes.length) throw new Error('Drive ROM 크기가 맞지 않습니다. 확인된 2MiB 개조 파일을 사용하세요.');
-        bytes.set(value, length);
-        length += value.length;
-      }
-    } finally { reader.releaseLock(); }
-    if (length !== bytes.length) throw new Error('Drive ROM 크기가 맞지 않습니다. 확인된 2MiB 개조 파일을 사용하세요.');
-    await loadRom(driveRom.name, bytes, driveRom.hash);
-  } catch (error) {
-    status(error.name === 'AbortError' ? 'Drive 연결 시간이 초과되었습니다. 다시 시도하거나 기기 ROM를 사용하세요.' : error.name === 'TypeError' ? 'Drive 연결에 실패했습니다. 다시 시도하거나 도움말의 Drive 폴더에서 내려받아 기기 ROM를 사용하세요.' : error.message || 'Drive 연결에 실패했습니다. 기기 ROM를 사용하세요.', true);
-  } finally {
-    clearTimeout(timeout);
-    controller.abort();
-    busy = false;
-    byId('open-drive').disabled = false;
-    if (core) play();
-  }
-});
-byId('rom-input').addEventListener('change', async event => {
-  const file = event.target.files[0];
-  event.target.value = '';
-  if (!file || busy) return;
   busy = true;
   status('ROM 확인 중…');
   try {
     if (file.size < 32768 || file.size > 8388608) throw new Error('ROM은 32KiB~8MiB의 .gb·.gbc 파일을 선택하세요. 압축 파일은 먼저 풀어 주세요.');
     await loadRom(file.name, new Uint8Array(await file.arrayBuffer()));
+    romList.hidden = true;
+    romList.replaceChildren();
+  } catch (error) {
+    status(error.message || 'ROM을 열지 못했습니다. 파일을 다시 선택하세요.', true);
+  } finally {
+    busy = false;
+    if (core) play();
   }
-  catch (error) { status(error.message || 'ROM을 열지 못했습니다. 파일을 다시 선택하세요.', true); }
-  finally { busy = false; if (core) play(); }
+}
+
+romInput.addEventListener('change', () => {
+  const selected = Array.from(romInput.files);
+  romInput.value = '';
+  if (busy || !selected.length) return;
+  const files = selected.filter(file => isRomFilename(file.name));
+  romList.replaceChildren();
+  romList.hidden = files.length < 2;
+  if (files.length === 0) {
+    status('다운로드 폴더에서 .gb 또는 .gbc 파일을 선택하세요.', true);
+    return;
+  }
+  if (files.length === 1) return openDeviceRom(files[0]);
+
+  for (const file of files) {
+    const row = document.createElement('li');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = file.name;
+    button.addEventListener('click', () => openDeviceRom(file));
+    row.append(button);
+    romList.append(row);
+  }
+  status('목록에서 실행할 ROM을 선택하세요.');
 });
 
 byId('restore-rom').addEventListener('click', async () => {
@@ -482,6 +470,7 @@ byId('export-save').addEventListener('click', async () => {
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { stop(); persist(); }
+  else play();
 });
 window.addEventListener('pagehide', () => { stop(); persist(); clearTemporaryState(); });
 setInterval(() => { if (core && !busy) persist(); }, 5000);

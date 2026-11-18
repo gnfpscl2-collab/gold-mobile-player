@@ -12,8 +12,12 @@ const RAM_CARTRIDGES = new Set([0x02, 0x03, 0x08, 0x09, 0x10, 0x12, 0x13, 0x1a, 
 const BATTERIES = new Set([0x03, 0x06, 0x09, 0x0f, 0x10, 0x13, 0x1b, 0x1e]);
 const RAM_BYTES = [0, 2048, 8192, 32768, 131072, 65536];
 
+export function isRomFilename(name) {
+  return /\.(gb|gbc)$/i.test(name);
+}
+
 export function validateRom(name, bytes) {
-  if (!/\.(gb|gbc)$/i.test(name)) {
+  if (!isRomFilename(name)) {
     throw new Error('ROM은 .gb 또는 .gbc 파일을 선택하세요. 세이브는 세이브 불러오기를 사용하세요.');
   }
   if (!(bytes instanceof Uint8Array) || bytes.length < 32768 || bytes.length > 8388608) {

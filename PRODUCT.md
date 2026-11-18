@@ -12,7 +12,7 @@ The user plays their own Korean Gold modified ROM on a phone and wants a separat
 - Mobile maximum 5x, desktop maximum 10x.
 - Save downloads/exports a real .sav file to the device, with local recovery storage.
 - Preserve real-time clock independent of emulation speed for the Celebi schedule.
-- The selected modified ROM is downloaded from the user-designated Google Drive folder. Device ROMs and saves are not uploaded by the player or committed to GitHub.
+- The player links to the user-designated Drive download and opens ROM files selected from the device. Device ROMs and saves are not uploaded by the player or committed to GitHub.
 
 ## Scope choices
 One player screen, standard touch direction/A/B/Start/Select controls, keyboard support, pause, sound, speed and save controls. Use a proven MIT core and the existing emulator screen hierarchy. No accounts, cloud saves, achievements, ROM catalog or native app-store submission.

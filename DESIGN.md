@@ -10,6 +10,6 @@ The user explicitly requested smaller ROM/save buttons and screen/speed selector
 
 Pause and release input when opening the native menu; closing/Escape resumes and restores focus. Keep errors visible, readable and untruncated. ROM names and routine main-screen status remain hidden; the footer shows only the numeric release.
 
-Ordinary SRAM/RTC stays local and .sav export is separate. T/R uses one JS-memory slot only; successful ROM boot/restart and pagehide clear it. Brief background visibility changes retain it. Drive loading uses the verified fixed ROM and the website/API-restricted public browser key; device file loading remains available.
+Ordinary SRAM/RTC stays local and .sav export is separate. T/R uses one JS-memory slot only; successful ROM boot/restart and pagehide clear it. Brief background visibility changes retain it. The menu links to the modified ROM download and uses the native file picker with .gb/.gbc filtering. The fallback picker shows all files. Multiple selected ROMs appear in a compact list, and only the chosen ROM is read and validated.
 
 Versioned CSS/module URLs are mirrored in the service-worker shell to prevent stale markup/styles. Font license and source: https://github.com/google/fonts/tree/main/ofl/silkscreen (LICENSE.Silkscreen.txt).

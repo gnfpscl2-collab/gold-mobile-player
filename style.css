@@ -130,6 +130,9 @@ dialog::backdrop{background:#16201780}
 .file-actions,.save-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
 .file-actions{margin-top:4px}
 #restore-rom{margin:0}
+.rom-download{margin:0 0 6px;font-size:11px;line-height:1.5}
+#rom-list{display:grid;gap:4px;max-height:116px;overflow:auto;margin:6px 0 0;padding:0;list-style:none}
+#rom-list button{width:100%;text-align:left;overflow-wrap:anywhere}
 .save-actions button{white-space:nowrap}
 .backup-status{margin:4px 0 0;color:#5d6e55;font-size:10px;line-height:14px}
 .setting{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:26px;font-size:11px}
@@ -144,7 +147,6 @@ input[type=checkbox]{width:14px;height:14px;margin:6px;accent-color:#3d6c56}
 details{font-size:12px;line-height:1.5;color:var(--muted)}
 summary{min-height:28px;padding:6px 0;color:#465341;font-size:11px;font-weight:600}
 details p{margin:8px 0}
-.drive-folder{display:inline-flex;align-items:center;min-height:28px;padding-block:4px;font-size:12px}
 .utility .status{margin:6px 0 0;font-size:11px;line-height:1.45}
 #install{margin-top:6px}
 [hidden]{display:none!important}
