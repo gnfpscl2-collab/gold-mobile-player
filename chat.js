@@ -1,4 +1,5 @@
 import { firebaseConfig } from './chat-config.js?v=1.5.0';
+import { watchPresence } from './chat-presence.js?v=1.6.0';
 
 const sdk = 'https://www.gstatic.com/firebasejs/13.3.0/';
 const allowedEmail = /^[^@\s]+@(?:gmail\.com|naver\.com)$/i;
@@ -13,7 +14,20 @@ export function messageSlot(seq) {
   return 'm' + (seq % 100);
 }
 
-async function connectChat(chat) {
+export function cooldownUntil(rate) {
+  const latest = rate?.createdAt?.toMillis();
+  const first = rate?.firstOfThreeAt?.toMillis();
+  if (latest == null) return 0;
+  return latest + (first != null && latest - first <= 10000 ? 15000 : 3000);
+}
+
+function report(id, message) {
+  const element = byId(id);
+  element.textContent = message;
+  element.hidden = !message;
+}
+
+async function connectChat(authButton) {
   const [{ initializeApp }, account, data] = await Promise.all([
     import(sdk + 'firebase-app.js'),
     import(sdk + 'firebase-auth.js'),
@@ -25,17 +39,23 @@ async function connectChat(chat) {
   const db = data.getFirestore(app);
   const messages = data.collection(db, 'chatMessages');
   const login = byId('chat-login');
+  const loginDialog = byId('chat-auth-dialog');
+  const verifyDialog = byId('chat-verify-dialog');
+  const openVerify = byId('chat-open-verify');
   const profileForm = byId('chat-profile');
   const nameField = byId('chat-nickname');
-  const refresh = byId('chat-refresh');
-  const resend = byId('chat-resend');
-  const logout = byId('chat-logout');
+  const onlineButton = byId('chat-online-toggle');
+  const onlineList = byId('chat-online');
   const room = byId('chat-room');
   const log = byId('chat-messages');
   const entry = byId('chat-message');
   const send = byId('chat-send');
-  const setStatus = message => { byId('chat-status').textContent = message; };
-  let unsubscribe;
+  const setStatus = message => report('chat-status', message);
+  const loginStatus = message => report('chat-login-status', message);
+  const verifyStatus = message => report('chat-verify-status', message);
+  let unsubscribeRoom;
+  let presence;
+  let lastRate;
   let authPending = false;
   let posting = false;
   let profile;
@@ -52,21 +72,55 @@ async function connectChat(chat) {
       return row;
     });
     log.replaceChildren(...nodes);
+    byId('chat-empty').hidden = nodes.length > 0;
     if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+
+  function renderCooldown() {
+    const seconds = Math.max(0, Math.ceil((cooldownUntil(lastRate) - Date.now()) / 1000));
+    byId('chat-send-button').disabled = posting || seconds > 0;
+    report('chat-cooldown', seconds ? '다음 전송까지 ' + seconds + '초' : '');
+  }
+
+  function renderOnline(players) {
+    onlineButton.textContent = '온라인 ' + players.length + '명';
+    const names = players.length ? players.map(player => player.nickname) : ['현재 접속자가 없습니다.'];
+    onlineList.replaceChildren(...names.map(name => {
+      const item = document.createElement('li');
+      item.textContent = name;
+      return item;
+    }));
+  }
+
+  function stopRoom() {
+    unsubscribeRoom?.();
+    unsubscribeRoom = undefined;
+    presence?.stop();
+    presence = undefined;
   }
 
   function updateRoom() {
     room.hidden = !profile;
-    if (!profile || !chat.open) {
-      unsubscribe?.();
-      unsubscribe = undefined;
+    onlineButton.hidden = !profile;
+    if (!profile) {
+      onlineList.hidden = true;
+      onlineButton.setAttribute('aria-expanded', 'false');
       log.replaceChildren();
-    } else if (!unsubscribe) {
-      const latest = data.query(messages, data.orderBy('seq', 'desc'), data.limit(100));
-      unsubscribe = data.onSnapshot(latest, renderMessages, () => {
-        setStatus('채팅을 불러오지 못했습니다. 연결을 확인하고 채팅을 다시 열어 주세요.');
-      });
     }
+    if (!profile || document.hidden) return stopRoom();
+    if (unsubscribeRoom) return;
+    const { uid } = auth.currentUser;
+    const latest = data.query(messages, data.orderBy('seq', 'desc'), data.limit(100));
+    const stopMessages = data.onSnapshot(latest, renderMessages, () => {
+      setStatus('채팅을 불러오지 못했습니다. 연결을 확인하고 다시 로그인하세요.');
+    });
+    const stopRate = data.onSnapshot(data.doc(db, 'chatRate', uid), snapshot => {
+      lastRate = snapshot.data();
+      renderCooldown();
+    }, () => {});
+    const cooldownTimer = setInterval(renderCooldown, 1000);
+    unsubscribeRoom = () => { stopMessages(); stopRate(); clearInterval(cooldownTimer); };
+    presence = watchPresence({ db, data, uid, nickname: profile.nickname, onChange: renderOnline });
   }
 
   async function sessionChanged() {
@@ -74,16 +128,24 @@ async function connectChat(chat) {
     const user = auth.currentUser;
     const eligible = Boolean(user && allowedEmail.test(user.email || ''));
     const verified = eligible && user.emailVerified;
-    login.hidden = Boolean(user);
-    byId('chat-account').hidden = !user;
-    refresh.hidden = !eligible || verified;
-    resend.hidden = refresh.hidden;
+    authButton.textContent = user ? '로그아웃' : '로그인';
+    if (user) {
+      authButton.removeAttribute('aria-haspopup');
+      authButton.removeAttribute('aria-controls');
+    } else {
+      authButton.setAttribute('aria-haspopup', 'dialog');
+      authButton.setAttribute('aria-controls', 'chat-auth-dialog');
+    }
+    openVerify.hidden = !eligible || verified;
+    if (!user || verified) verifyDialog.close();
     profileForm.hidden = true;
     profile = undefined;
+    lastRate = undefined;
+    renderCooldown();
     updateRoom();
-    if (!user) setStatus('Gmail·네이버 이메일을 인증한 뒤 채팅할 수 있습니다.');
+    if (!user) setStatus('채팅하려면 Gmail 또는 네이버 이메일로 로그인하세요.');
     else if (!eligible) setStatus('gmail.com 또는 naver.com 이메일로 로그인하세요.');
-    else if (!verified) setStatus('인증 메일의 링크를 누른 뒤 여기서 인증 확인을 누르세요.');
+    else if (!verified) setStatus('메일 인증을 마치면 채팅에 입장할 수 있습니다.');
     else {
       setStatus('닉네임을 확인하는 중입니다.');
       try {
@@ -99,7 +161,7 @@ async function connectChat(chat) {
     }
   }
 
-  async function accountAction(action) {
+  async function accountAction(action, showError = setStatus) {
     if (authPending) return;
     authPending = true;
     try { await action(); }
@@ -110,7 +172,7 @@ async function connectChat(chat) {
         'auth/weak-password': '채팅 비밀번호는 8자 이상으로 설정하세요.',
         'auth/too-many-requests': '요청이 많습니다. 잠시 뒤 다시 시도하세요.',
       };
-      setStatus(messages[error.code] || '로그인 요청을 처리하지 못했습니다. 잠시 뒤 다시 시도하세요.');
+      showError(messages[error.code] || '요청을 처리하지 못했습니다. 잠시 뒤 다시 시도하세요.');
     } finally { authPending = false; }
   }
 
@@ -119,40 +181,75 @@ async function connectChat(chat) {
     const email = byId('chat-email').value.trim().toLowerCase();
     const password = byId('chat-password');
     const action = event.submitter?.value || 'sign-in';
-    if (!allowedEmail.test(email)) return setStatus('gmail.com 또는 naver.com 이메일을 입력하세요.');
+    if (!allowedEmail.test(email)) return loginStatus('gmail.com 또는 naver.com 이메일을 입력하세요.');
     return accountAction(async () => {
       if (action === 'reset') {
         await account.sendPasswordResetEmail(auth, email);
-        setStatus('가입한 주소라면 비밀번호 재설정 메일이 도착합니다.');
+        loginStatus('가입한 주소라면 비밀번호 재설정 메일이 도착합니다.');
       } else if (action === 'sign-up') {
-        if (password.value.length < 8) return setStatus('가입용 비밀번호를 8자 이상으로 설정하세요.');
+        if (password.value.length < 8) return loginStatus('가입용 비밀번호를 8자 이상으로 설정하세요.');
         const credential = await account.createUserWithEmailAndPassword(auth, email, password.value);
-        password.value = '';
-        await account.sendEmailVerification(credential.user);
-        setStatus('인증 메일의 링크를 누른 뒤 여기서 인증 확인을 누르세요.');
+        showVerification();
+        verifyStatus('인증 메일을 보내는 중입니다.');
+        try {
+          await account.sendEmailVerification(credential.user);
+          verifyStatus('인증 메일을 보냈습니다.');
+        } catch {
+          verifyStatus('메일을 보내지 못했습니다. 다시 보내기를 눌러 주세요.');
+        }
       } else {
-        await account.signInWithEmailAndPassword(auth, email, password.value);
-        password.value = '';
+        const credential = await account.signInWithEmailAndPassword(auth, email, password.value);
+        if (credential.user.emailVerified) loginDialog.close();
+        else showVerification();
       }
-    });
+    }, loginStatus);
   });
-  refresh.addEventListener('click', () => accountAction(async () => {
+
+  function showVerification() {
+    loginDialog.close();
+    verifyStatus('');
+    if (!verifyDialog.open) verifyDialog.showModal();
+  }
+
+  function checkVerification(silent = false) {
+    return accountAction(async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      await user.reload();
+      if (!user.emailVerified) {
+        if (!silent) verifyStatus('아직 인증되지 않았습니다. 받은 메일을 확인하세요.');
+        return;
+      }
+      await user.getIdToken(true);
+      await sessionChanged();
+      if (profile) entry.focus();
+      else if (!profileForm.hidden) nameField.focus();
+    }, silent ? () => {} : verifyStatus);
+  }
+
+  loginDialog.addEventListener('close', () => {
+    byId('chat-password').value = '';
+    loginStatus('');
+  });
+  openVerify.addEventListener('click', showVerification);
+  byId('chat-refresh').addEventListener('click', () => checkVerification());
+  byId('chat-resend').addEventListener('click', () => accountAction(async () => {
     const user = auth.currentUser;
     if (!user) return;
-    await user.reload();
-    await user.getIdToken(true);
-    sessionChanged();
-  }));
-  resend.addEventListener('click', () => accountAction(async () => {
-    if (!auth.currentUser) return;
-    await account.sendEmailVerification(auth.currentUser);
-    setStatus('인증 메일을 다시 보냈습니다.');
-  }));
-  logout.addEventListener('click', () => accountAction(async () => {
-    await account.signOut(auth);
-    entry.value = '';
-    byId('chat-password').value = '';
-  }));
+    await account.sendEmailVerification(user);
+    verifyStatus('인증 메일을 다시 보냈습니다.');
+  }, verifyStatus));
+  function setOnlineOpen(open) {
+    onlineList.hidden = !open;
+    onlineButton.setAttribute('aria-expanded', String(open));
+  }
+
+  onlineButton.addEventListener('click', () => setOnlineOpen(onlineList.hidden));
+  document.addEventListener('player-trade-wait', () => {
+    if (profile) setOnlineOpen(true);
+    else setStatus('온라인 닉네임을 보려면 채팅 계정으로 로그인하고 닉네임을 등록하세요.');
+    byId('chat').scrollIntoView({ block: 'nearest' });
+  });
 
   profileForm.addEventListener('submit', event => {
     event.preventDefault();
@@ -183,41 +280,78 @@ async function connectChat(chat) {
     const user = auth.currentUser;
     const body = entry.value.trim();
     if (!profile || !user?.emailVerified || !allowedEmail.test(user.email || '') || !body || body.length > 240 || posting) return;
+    if (cooldownUntil(lastRate) > Date.now()) return renderCooldown();
     if (!navigator.onLine) return setStatus('인터넷에 연결한 뒤 다시 보내세요.');
     posting = true;
+    renderCooldown();
     try {
       const { nickname } = profile;
       const state = data.doc(db, 'chatState', 'current');
       const rate = data.doc(db, 'chatRate', user.uid);
       await data.runTransaction(db, async transaction => {
         const previous = await transaction.get(state);
+        const lastPost = (await transaction.get(rate)).data();
         const seq = (previous.data()?.seq ?? 0) + 1;
         const messageId = messageSlot(seq);
         const createdAt = data.serverTimestamp();
         transaction.set(state, { seq });
         transaction.set(data.doc(messages, messageId), { uid: user.uid, nickname, body, createdAt, seq });
-        transaction.set(rate, { messageId, createdAt, seq });
+        transaction.set(rate, {
+          messageId, createdAt, seq,
+          previousAt: lastPost?.createdAt ?? null,
+          firstOfThreeAt: lastPost?.previousAt ?? null,
+        });
       });
       if (entry.value.trim() === body) entry.value = '';
       setStatus('');
     } catch (error) {
-      setStatus(error.code === 'permission-denied' ? '인증 상태를 확인하고 3초 뒤 다시 보내세요.' : '메시지를 보내지 못했습니다. 다시 시도하세요.');
-    } finally { posting = false; }
+      setStatus(error.code === 'permission-denied' ? '전송 제한 또는 인증 상태를 확인하고 다시 보내세요.' : '메시지를 보내지 못했습니다. 다시 시도하세요.');
+    } finally {
+      posting = false;
+      renderCooldown();
+    }
   });
 
   account.onAuthStateChanged(auth, sessionChanged);
-  chat.addEventListener('toggle', updateRoom);
+  document.addEventListener('visibilitychange', () => {
+    updateRoom();
+    if (!document.hidden && verifyDialog.open) checkVerification(true);
+  });
+
+  await auth.authStateReady();
+  return () => {
+    if (!auth.currentUser) {
+      if (!loginDialog.open) loginDialog.showModal();
+      return;
+    }
+    return accountAction(async () => {
+      const lease = presence;
+      stopRoom();
+      if (lease && navigator.onLine) {
+        await Promise.race([
+          lease.removeOwnLease().catch(() => {}),
+          new Promise(resolve => setTimeout(resolve, 800)),
+        ]);
+      }
+      await account.signOut(auth);
+      entry.value = '';
+      nameField.value = '';
+    });
+  };
 }
 
 if (firebaseConfig && typeof document !== 'undefined') {
-  const chat = byId('chat');
+  const authButton = byId('chat-auth');
   let connecting;
-  chat.hidden = false;
-  chat.addEventListener('toggle', () => {
-    if (!chat.open || connecting) return;
-    connecting = connectChat(chat).catch(() => {
-      byId('chat-status').textContent = '채팅에 연결하지 못했습니다. 닫았다가 다시 열어 주세요.';
+  function ensureChat() {
+    connecting ??= connectChat(authButton).catch(() => {
+      report('chat-status', '채팅에 연결하지 못했습니다. 온라인에서 로그인 버튼을 눌러 다시 시도하세요.');
       connecting = undefined;
     });
-  });
+    return connecting;
+  }
+  byId('chat').hidden = false;
+  authButton.hidden = false;
+  authButton.addEventListener('click', async () => (await ensureChat())?.());
+  ensureChat();
 }

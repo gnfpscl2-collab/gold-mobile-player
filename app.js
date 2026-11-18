@@ -31,6 +31,7 @@ let busy = false;
 let storedRom;
 let installPrompt;
 let temporaryState;
+let showingTradeWait = false;
 const held = new Map();
 const keys = Array.from({ length: 8 }, () => ({ ticks: 0, edges: [] }));
 
@@ -69,6 +70,7 @@ function play() {
   timer = setInterval(() => {
     try {
       core.run();
+      checkTradeWait();
       keys.forEach((input, key) => {
         if (input.ticks > 0) input.ticks--;
         if (!input.ticks && input.edges.length) sendKey(key, input.edges.shift());
@@ -77,6 +79,16 @@ function play() {
     catch { stop(); status('게임 실행 중 오류가 발생했습니다. 마지막 세이브로 다시 열어 주세요.', true); }
   }, settings[6]);
   byId('play-state').textContent = '플레이 중';
+}
+
+function checkTradeWait() {
+  const ram = core.GBCMemory;
+  // This exact Korean build waits for a link at 5c:4c64 after choosing Trade on the second floor.
+  const waiting = current?.hash === '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1'
+    && ram?.[0xafd] === 20 && ram[0xafe] === 1 && ram[0x20e] === 1
+    && ram[0x21d] === 0x5c && (ram[0x21e] | ram[0x21f] << 8) === 0x4c64;
+  if (waiting && !showingTradeWait) document.dispatchEvent(new Event('player-trade-wait'));
+  showingTradeWait = waiting;
 }
 
 // Open the audio context inside the browser's activation, before file reads or dialog callbacks.
@@ -142,6 +154,7 @@ function boot(record, saved) {
   next.start();
   core = next;
   current = record;
+  showingTradeWait = false;
   current.info.ramBytes = core.saveSRAMState().length;
   setPlaybackSpeed(core, clampSpeed(speed.value, mobileMax));
   clearTemporaryState();
@@ -200,6 +213,7 @@ function loadTemporaryState() {
     next.prepareFrame();
     next.requestDraw();
     core = next;
+    showingTradeWait = false;
     temporaryStateStatus('복원');
     status('임시 화면 복원 완료');
   } catch {

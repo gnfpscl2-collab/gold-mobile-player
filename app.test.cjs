@@ -72,7 +72,7 @@ class Target {
   }
 }
 
-async function harness({ apple = false, preferences, storedRecords } = {}) {
+async function harness({ apple = false, preferences, storedRecords, emulatedRomHash } = {}) {
   const validators = await import(pathToFileURL(path.join(__dirname, 'files.js')).href);
   const source = await fs.readFile(path.join(__dirname, 'app.js'), 'utf8');
   const elements = new Map();
@@ -172,8 +172,10 @@ async function harness({ apple = false, preferences, storedRecords } = {}) {
     ...validators, document, window, GameBoyCore: Core,
     navigator,
     matchMedia: () => ({ matches: false }),
-    crypto: webcrypto,
-    File, Uint8Array, ArrayBuffer, Date, console, structuredClone,
+    crypto: emulatedRomHash ? {
+      subtle: { digest: async () => Uint8Array.from(Buffer.from(emulatedRomHash, 'hex')).buffer },
+    } : webcrypto,
+    File, Uint8Array, ArrayBuffer, Date, console, Event, structuredClone,
     async fetch(url) { fetches.push(url); throw new Error('unexpected network request'); },
     URL: {
       createObjectURL(value) { const url = 'blob:test/' + blobs.size; blobs.set(url, value); return url; },
@@ -406,6 +408,36 @@ test('S and E use the game menu and registered-tool keys for touch and accessibl
     h.tick(3);
     assert.deepEqual(h.latest().keyEvents, [{ key, down: true }, { key, down: false }]);
   }
+});
+
+test('the verified Korean ROM opens the online list once per accepted trade prompt', async () => {
+  const h = await harness({
+    emulatedRomHash: '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1',
+  });
+  const events = [];
+  h.document.dispatchEvent = event => events.push(event.type);
+  await h.load('Pokemon gold(K).gbc', rom('FIRST'));
+  const ram = h.latest().GBCMemory = new Uint8Array(0xb00);
+  ram[0xafd] = 20;
+  ram[0xafe] = 1;
+  ram[0x20e] = 1;
+  ram[0x21d] = 0x5c;
+  ram[0x21e] = 0x5a;
+  ram[0x21f] = 0x4c;
+  h.tick();
+  assert.deepEqual(events, [], 'the unaccepted prompt leaves the list closed');
+  ram[0x21e] = 0x64;
+  h.tick(3);
+  await h.element('open-menu').emit('click');
+  await h.element('close-menu').emit('click');
+  await h.settle();
+  h.tick(3);
+  assert.deepEqual(events, ['player-trade-wait'], 'pausing in the menu must not reopen the list');
+  ram[0x21e] = 0x5a;
+  h.tick();
+  ram[0x21e] = 0x64;
+  h.tick(2);
+  assert.deepEqual(events, ['player-trade-wait', 'player-trade-wait']);
 });
 
 test('rapid 5x touch taps reach the game as two distinct presses even between emulator ticks', async () => {

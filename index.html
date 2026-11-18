@@ -11,16 +11,19 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./style.css?v=1.5.0">
+  <link rel="stylesheet" href="./style.css?v=1.6.0">
   <script src="./vendor/GameBoyCore.js" defer></script>
-  <script type="module" src="./app.js?v=1.4.1"></script>
-  <script type="module" src="./chat.js?v=1.5.0"></script>
+  <script type="module" src="./app.js?v=1.6.0"></script>
+  <script type="module" src="./chat.js?v=1.6.0"></script>
 </head>
 <body>
   <main>
     <header class="masthead">
       <h1>Pokemon</h1>
-      <button id="open-menu" class="icon-button" aria-label="메뉴 열기" title="메뉴" aria-haspopup="dialog" aria-controls="player-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></button>
+      <div class="masthead-actions">
+        <button id="chat-auth" type="button" aria-haspopup="dialog" aria-controls="chat-auth-dialog" hidden>로그인</button>
+        <button id="open-menu" class="icon-button" aria-label="메뉴 열기" title="메뉴" aria-haspopup="dialog" aria-controls="player-menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4" cy="6" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="4" cy="18" r="1"/></svg></button>
+      </div>
     </header>
     <div class="workspace">
       <section class="console" aria-label="게임 화면과 조작">
@@ -90,24 +93,12 @@
         <p id="menu-status" class="status" role="status" aria-live="polite">다운로드한 ROM을 선택하세요.</p>
       </div>
     </dialog>
-    <details id="chat" class="chat" hidden>
-      <summary>채팅</summary>
-      <form id="chat-login" class="chat-form" hidden>
-        <label for="chat-email">Gmail 또는 네이버 이메일</label>
-        <input id="chat-email" type="email" autocomplete="email" inputmode="email" maxlength="254" required>
-        <label for="chat-password">채팅 비밀번호</label>
-        <input id="chat-password" type="password" autocomplete="current-password" maxlength="128" required>
-        <div class="chat-actions">
-          <button type="submit" class="primary" value="sign-in">로그인</button>
-          <button type="submit" value="sign-up">가입</button>
-          <button type="submit" value="reset" formnovalidate>비밀번호 재설정</button>
-        </div>
-      </form>
-      <div id="chat-account" class="chat-actions" hidden>
-        <button id="chat-refresh" type="button">인증 확인</button>
-        <button id="chat-resend" type="button">인증 메일 다시 보내기</button>
-        <button id="chat-logout" type="button">로그아웃</button>
+    <section id="chat" class="chat" aria-labelledby="chat-title" hidden>
+      <div class="chat-heading">
+        <h2 id="chat-title">채팅</h2>
+        <button id="chat-online-toggle" type="button" aria-controls="chat-online" aria-expanded="false" hidden>온라인 목록</button>
       </div>
+      <ul id="chat-online" aria-label="온라인 닉네임" hidden></ul>
       <form id="chat-profile" class="chat-form" hidden>
         <label for="chat-nickname">닉네임</label>
         <p id="chat-nickname-help">한글 6자 또는 영문 12자까지. 섞어 쓰면 한글 1자를 영문 2자로 계산합니다. 한 번 등록한 이름은 바꿀 수 없습니다.</p>
@@ -118,13 +109,46 @@
       </form>
       <div id="chat-room" hidden>
         <ol id="chat-messages" class="chat-messages" aria-label="최근 메시지 100개"></ol>
+        <p id="chat-empty" class="chat-note" hidden>아직 메시지가 없습니다.</p>
         <form id="chat-send" class="chat-compose">
           <input id="chat-message" aria-label="채팅 메시지" placeholder="메시지 입력" maxlength="240" required>
-          <button type="submit" class="primary">보내기</button>
+          <button id="chat-send-button" type="submit" class="primary">보내기</button>
         </form>
+        <p id="chat-cooldown" class="chat-note" hidden></p>
       </div>
-      <p id="chat-status" class="status" role="status">Gmail·네이버 이메일을 인증한 뒤 채팅할 수 있습니다.</p>
-    </details>
+      <p id="chat-status" class="status" role="status">채팅하려면 Gmail 또는 네이버 이메일로 로그인하세요.</p>
+      <button id="chat-open-verify" type="button" aria-haspopup="dialog" aria-controls="chat-verify-dialog" hidden>메일 인증 확인</button>
+    </section>
+    <dialog id="chat-auth-dialog" class="chat-dialog" aria-labelledby="chat-auth-title">
+      <div class="chat-heading">
+        <h2 id="chat-auth-title">채팅 로그인</h2>
+        <form method="dialog"><button type="submit" aria-label="로그인 창 닫기">닫기</button></form>
+      </div>
+      <form id="chat-login" class="chat-form">
+        <label for="chat-email">Gmail 또는 네이버 이메일</label>
+        <input id="chat-email" type="email" autocomplete="email" inputmode="email" maxlength="254" required autofocus>
+        <label for="chat-password">채팅 비밀번호</label>
+        <input id="chat-password" type="password" autocomplete="current-password" maxlength="128" required>
+        <div class="chat-actions">
+          <button type="submit" class="primary" value="sign-in">로그인</button>
+          <button type="submit" value="sign-up">가입</button>
+          <button type="submit" value="reset" formnovalidate>비밀번호 재설정</button>
+        </div>
+      </form>
+      <p id="chat-login-status" class="status" role="status" hidden></p>
+    </dialog>
+    <dialog id="chat-verify-dialog" class="chat-dialog" aria-labelledby="chat-verify-title">
+      <div class="chat-heading">
+        <h2 id="chat-verify-title">메일 인증</h2>
+        <form method="dialog"><button type="submit" aria-label="인증 창 닫기">닫기</button></form>
+      </div>
+      <p class="chat-note">받은 메일에서 인증 링크를 누른 뒤 돌아오세요.</p>
+      <div class="chat-actions">
+        <button id="chat-refresh" type="button" class="primary">인증 확인</button>
+        <button id="chat-resend" type="button">인증 메일 다시 보내기</button>
+      </div>
+      <p id="chat-verify-status" class="status" role="status" hidden></p>
+    </dialog>
   </main>
 </body>
 </html>

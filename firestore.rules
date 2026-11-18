@@ -51,6 +51,25 @@ service cloud.firestore {
         && newProfileMatches(request.auth.uid, key);
     }
 
+    function validPresence(uid) {
+      let presence = request.resource.data;
+      return eligible()
+        && request.auth.uid == uid
+        && presence.keys().hasOnly(['uid', 'nickname', 'seenAt', 'sessionId'])
+        && presence.uid == uid
+        && presence.nickname == get(profilePath(uid)).data.nickname
+        && presence.seenAt == request.time
+        && presence.sessionId is string
+        && presence.sessionId.matches('[0-9a-f]{32}');
+    }
+
+    match /chatPresence/{uid} {
+      allow get, delete: if eligible() && request.auth.uid == uid;
+      allow list: if eligible() && request.query.limit <= 100
+        && exists(profilePath(request.auth.uid));
+      allow create, update: if validPresence(uid);
+    }
+
     function statePath() {
       return /databases/$(database)/documents/chatState/current;
     }
@@ -100,12 +119,20 @@ service cloud.firestore {
       let rate = request.resource.data;
       return eligible()
         && request.auth.uid == uid
-        && rate.keys().hasOnly(['messageId', 'createdAt', 'seq'])
+        && rate.keys().hasOnly(['messageId', 'createdAt', 'seq', 'previousAt', 'firstOfThreeAt'])
+        && rate.keys().hasAll(['previousAt', 'firstOfThreeAt'])
         && validSeq(rate.seq)
         && rate.messageId == slotId(rate.seq)
         && rate.createdAt == request.time
         && advancesTo(rate.seq)
         && messageMatches(uid, rate.seq);
+    }
+
+    function cooldown() {
+      let first = resource.data.get('firstOfThreeAt', null);
+      let burst = first is timestamp
+        && resource.data.createdAt <= first + duration.value(10, 's');
+      return duration.value(burst ? 15 : 3, 's');
     }
 
     function validMessage(messageId) {
@@ -132,9 +159,14 @@ service cloud.firestore {
     }
 
     match /chatRate/{uid} {
-      allow create: if validRate(uid);
+      allow get: if eligible() && request.auth.uid == uid;
+      allow create: if validRate(uid)
+        && request.resource.data.previousAt == null
+        && request.resource.data.firstOfThreeAt == null;
       allow update: if validRate(uid)
-        && request.time >= resource.data.createdAt + duration.value(3, 's');
+        && request.resource.data.previousAt == resource.data.createdAt
+        && request.resource.data.firstOfThreeAt == resource.data.get('previousAt', null)
+        && request.time >= resource.data.createdAt + cooldown();
     }
   }
 }
