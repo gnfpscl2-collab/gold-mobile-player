@@ -1,11 +1,16 @@
-export const PREVIOUS_TRADE_BUILD = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
-export const CURRENT_TRADE_BUILD = '6120e2ff614b9d5f743c66ba0e35d0f291b2f6b41666e4b9ae5278f53cab7aaa';
+export const PREVIOUS_TRADE_BUILD = '6120e2ff614b9d5f743c66ba0e35d0f291b2f6b41666e4b9ae5278f53cab7aaa';
+export const CURRENT_TRADE_BUILD = '69c1a08516c4ae1812265915324dfbe51356dcb8e978f6e1fa8180085c3c832a';
+export const TRADE_BUILDS = Object.freeze([
+  '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1',
+  PREVIOUS_TRADE_BUILD,
+  CURRENT_TRADE_BUILD,
+]);
 const CHANNEL_LABEL = 'gb-serial-v1';
 const MAX_SDP_SIZE = 32_000;
 const CONNECT_TIMEOUT = 45_000;
 
 export function isSupportedTradeBuild(romHash) {
-  return romHash === PREVIOUS_TRADE_BUILD || romHash === CURRENT_TRADE_BUILD;
+  return TRADE_BUILDS.includes(romHash);
 }
 
 function assertTradeBuild(romHash, expectedHash) {

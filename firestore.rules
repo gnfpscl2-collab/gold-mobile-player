@@ -74,7 +74,8 @@ service cloud.firestore {
     function supportedTradeBuild(build) {
       return build in [
         '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1',
-        '6120e2ff614b9d5f743c66ba0e35d0f291b2f6b41666e4b9ae5278f53cab7aaa'
+        '6120e2ff614b9d5f743c66ba0e35d0f291b2f6b41666e4b9ae5278f53cab7aaa',
+        '69c1a08516c4ae1812265915324dfbe51356dcb8e978f6e1fa8180085c3c832a'
       ];
     }
 

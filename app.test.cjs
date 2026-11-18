@@ -273,7 +273,7 @@ test('first boot on the new ROM copies the previous save and game clock without 
   };
   const h = await harness({ emulatedRomHash: CURRENT_TRADE_BUILD, storedRecords: [[previousKey, previousSave]] });
 
-  await h.load('Pokemon gold(K) v0.2.gbc', rom('FIRST'));
+  await h.load('Pokemon gold(K) v0.3.gbc', rom('FIRST'));
 
   assert.equal(h.latest().ram[0], 0x73);
   assert.deepEqual([...h.latest().rtc], previousSave.rtc);
@@ -281,6 +281,18 @@ test('first boot on the new ROM copies the previous save and game clock without 
   assert.deepEqual(h.records.get(previousKey), previousSave);
   assert.deepEqual(h.records.get(currentKey), previousSave);
   assert.equal(h.writes.some(write => write.key === previousKey), false);
+});
+
+test('the arena ROM can copy a save directly from the first supported version', async () => {
+  const { CURRENT_TRADE_BUILD, TRADE_BUILDS } = await import('./trade-signaling.js');
+  const firstSave = { ram: new Uint8Array(32768).fill(0x56), savedAt: 1234 };
+  const h = await harness({
+    emulatedRomHash: CURRENT_TRADE_BUILD,
+    storedRecords: [['save:' + TRADE_BUILDS[0], firstSave]],
+  });
+  await h.load('Pokemon gold(K) v0.3.gbc', rom('FIRST'));
+  assert.deepEqual(h.records.get('save:' + CURRENT_TRADE_BUILD), firstSave);
+  assert.equal(h.records.has('save:' + TRADE_BUILDS[1]), false);
 });
 
 test('save migration cannot replace existing progress in the new ROM', async t => {
@@ -299,7 +311,7 @@ test('save migration cannot replace existing progress in the new ROM', async t =
         if (key === currentKey) h.records.set(key, current);
       };
 
-      await h.load('Pokemon gold(K) v0.2.gbc', rom('FIRST'));
+      await h.load('Pokemon gold(K) v0.3.gbc', rom('FIRST'));
 
       assert.equal(h.latest().ram[0], 0x84);
       assert.deepEqual(h.records.get(currentKey), current);
