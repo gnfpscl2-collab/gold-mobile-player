@@ -1,0 +1,220 @@
+export const SUPPORTED_TRADE_BUILD = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
+const CHANNEL_LABEL = 'gb-serial-v1';
+const MAX_SDP_SIZE = 32_000;
+const CONNECT_TIMEOUT = 45_000;
+
+function assertTradeBuild(romHash) {
+  if (romHash !== SUPPORTED_TRADE_BUILD) throw new Error('이 교환은 확인된 개조판에서만 할 수 있습니다.');
+}
+
+function sameInvite(a, b) {
+  return a != null && a.nonce === b.nonce && a.fromUid === b.fromUid && a.toUid === b.toUid;
+}
+
+function checkInvite(current, invite) {
+  if (!sameInvite(current, invite) || current.romHash !== SUPPORTED_TRADE_BUILD || current.status === 'closed') {
+    throw new Error('교환 요청이 종료되었거나 바뀌었습니다.');
+  }
+}
+
+function inviteRef(db, data, uid) {
+  return data.doc(db, 'tradeInvites', uid);
+}
+
+function snapshotData(snapshot) {
+  if (snapshot.metadata?.fromCache || snapshot.metadata?.hasPendingWrites) return undefined;
+  return snapshot.data() ?? null;
+}
+
+export function watchTradeInvite({ db, data, uid, onChange, onError }) {
+  return data.onSnapshot(inviteRef(db, data, uid), { includeMetadataChanges: true }, snapshot => {
+    const current = snapshotData(snapshot);
+    if (current !== undefined) onChange(current);
+  }, onError);
+}
+
+export async function sendTradeInvite({ db, data, fromUid, toUid, romHash }) {
+  assertTradeBuild(romHash);
+  if (!fromUid || !toUid || fromUid === toUid) throw new Error('교환할 다른 사용자를 선택하세요.');
+  const invite = { fromUid, toUid, romHash, nonce: crypto.randomUUID().replaceAll('-', ''), status: 'pending' };
+  await data.setDoc(inviteRef(db, data, toUid), { ...invite, createdAt: data.serverTimestamp() });
+  return invite;
+}
+
+export async function acceptTradeInvite({ db, data, invite, romHash }) {
+  assertTradeBuild(romHash);
+  const ref = inviteRef(db, data, invite.toUid);
+  return data.runTransaction(db, async transaction => {
+    const current = (await transaction.get(ref)).data();
+    checkInvite(current, invite);
+    if (current.status !== 'pending') throw new Error('이미 처리된 교환 요청입니다.');
+    transaction.update(ref, { status: 'accepted' });
+    return { ...current, status: 'accepted' };
+  });
+}
+
+export async function closeTradeInvite({ db, data, invite, uid }) {
+  if (uid !== invite.fromUid && uid !== invite.toUid) return;
+  const ref = inviteRef(db, data, invite.toUid);
+  await data.runTransaction(db, async transaction => {
+    const current = (await transaction.get(ref)).data();
+    if (!sameInvite(current, invite) || current.status === 'closed') return;
+    transaction.update(ref, { status: 'closed' });
+    if (current.status === 'offered') transaction.delete(data.doc(db, 'tradeSignals', invite.toUid));
+  });
+}
+
+function aborted(signal) {
+  return signal.reason || new Error('교환 연결이 취소되었습니다.');
+}
+
+function duringConnection(promise, signal) {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(aborted(signal));
+    // Attach both handlers even after abort so a late network error is handled.
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+    if (signal.aborted) onAbort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+async function waitForDocument(data, ref, select, signal) {
+  let unsubscribe;
+  try {
+    return await duringConnection(new Promise((resolve, reject) => {
+      unsubscribe = data.onSnapshot(ref, { includeMetadataChanges: true }, snapshot => {
+        const current = snapshotData(snapshot);
+        if (current === undefined) return;
+        try {
+          if (select(current)) resolve(current);
+        } catch (error) {
+          reject(error);
+        }
+      }, reject);
+    }), signal);
+  } finally {
+    unsubscribe?.();
+  }
+}
+
+function watchEvent(target, type, select) {
+  let listener;
+  const promise = new Promise(resolve => {
+    listener = event => {
+      if (!select(event)) return;
+      target.removeEventListener(type, listener);
+      resolve(event);
+    };
+    target.addEventListener(type, listener);
+  });
+  return { promise, remove: () => target.removeEventListener(type, listener) };
+}
+
+function checkSdp(sdp) {
+  if (typeof sdp !== 'string' || !sdp.length || sdp.length > MAX_SDP_SIZE) {
+    throw new Error('교환 연결 정보가 올바르지 않습니다.');
+  }
+  return sdp;
+}
+
+async function localSdp(peer, description, signal) {
+  await duringConnection(peer.setLocalDescription(description), signal);
+  if (peer.iceGatheringState !== 'complete') {
+    const completed = watchEvent(peer, 'icegatheringstatechange', () => peer.iceGatheringState === 'complete');
+    try {
+      await duringConnection(completed.promise, signal);
+    } finally {
+      completed.remove();
+    }
+  }
+  return checkSdp(peer.localDescription?.sdp);
+}
+
+export async function connectTrade({ db, data, invite, uid, romHash, signal: externalSignal }) {
+  assertTradeBuild(romHash);
+  if (uid !== invite.fromUid && uid !== invite.toUid) throw new Error('교환 참여자만 접속할 수 있습니다.');
+  if (externalSignal?.aborted) throw aborted(externalSignal);
+  const controller = new AbortController();
+  const signal = controller.signal;
+  // shortcut: STUN only. Networks that require a TURN relay cannot connect.
+  const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+  const ref = inviteRef(db, data, invite.toUid);
+  const message = data.doc(db, 'tradeSignals', invite.toUid);
+  const onExternalAbort = () => close(aborted(externalSignal));
+  const onConnectionChange = () => {
+    if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
+      close(new Error('상대와 연결이 끊어졌습니다.'));
+    }
+  };
+  const timeout = setTimeout(() => close(new Error('교환 연결 시간이 초과되었습니다.')), CONNECT_TIMEOUT);
+  let channel;
+  let incoming;
+  let channelOpen;
+
+  function close(reason) {
+    if (signal.aborted) return;
+    clearTimeout(timeout);
+    controller.abort(reason);
+    externalSignal?.removeEventListener('abort', onExternalAbort);
+    peer.removeEventListener('connectionstatechange', onConnectionChange);
+    incoming?.remove();
+    channelOpen?.remove();
+    channel?.close();
+    peer.close();
+  }
+
+  peer.addEventListener('connectionstatechange', onConnectionChange);
+  externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+  try {
+    const initiating = uid === invite.fromUid;
+    const current = await waitForDocument(data, ref, value => {
+      checkInvite(value, invite);
+      return initiating ? value.status === 'accepted' : value.status === 'offered';
+    }, signal);
+
+    if (initiating) {
+      channel = peer.createDataChannel(CHANNEL_LABEL, { ordered: true });
+      const offer = await localSdp(peer, await duringConnection(peer.createOffer(), signal), signal);
+      const batch = data.writeBatch(db);
+      batch.set(message, {
+        nonce: current.nonce, inviteAt: current.createdAt, offeredAt: data.serverTimestamp(), offer, answer: null,
+      });
+      batch.update(ref, { status: 'offered' });
+      await duringConnection(batch.commit(), signal);
+      const { answer } = await waitForDocument(data, message, value => (
+        value?.nonce === current.nonce && typeof value.answer === 'string'
+      ), signal);
+      await duringConnection(peer.setRemoteDescription({ type: 'answer', sdp: checkSdp(answer) }), signal);
+    } else {
+      const { offer } = await waitForDocument(data, message, value => (
+        value?.nonce === current.nonce && typeof value.offer === 'string'
+      ), signal);
+      incoming = watchEvent(peer, 'datachannel', event => {
+        const remote = event.channel;
+        if (remote.label !== CHANNEL_LABEL || !remote.ordered
+          || remote.maxRetransmits !== null || remote.maxPacketLifeTime !== null) {
+          remote.close();
+          return false;
+        }
+        remote.binaryType = 'arraybuffer';
+        channel = remote;
+        return true;
+      });
+      await duringConnection(peer.setRemoteDescription({ type: 'offer', sdp: checkSdp(offer) }), signal);
+      const answer = await localSdp(peer, await duringConnection(peer.createAnswer(), signal), signal);
+      await duringConnection(data.updateDoc(message, { answer }), signal);
+      await duringConnection(incoming.promise, signal);
+    }
+
+    channel.binaryType = 'arraybuffer';
+    if (channel.readyState !== 'open') {
+      channelOpen = watchEvent(channel, 'open', () => true);
+      await duringConnection(channelOpen.promise, signal);
+    }
+    clearTimeout(timeout);
+    return { channel, close };
+  } catch (error) {
+    close(error);
+    throw error;
+  }
+}

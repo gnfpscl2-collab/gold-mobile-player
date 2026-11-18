@@ -1,5 +1,5 @@
 import { firebaseConfig } from './chat-config.js?v=1.5.0';
-import { watchPresence } from './chat-presence.js?v=1.7.0';
+import { watchPresence } from './chat-presence.js?v=1.8.0';
 
 const sdk = 'https://www.gstatic.com/firebasejs/13.3.0/';
 const allowedEmail = /^[^@\s]+@(?:gmail\.com|naver\.com)$/i;
@@ -66,7 +66,177 @@ async function connectChat(authButton) {
   let session = 0;
   let playersOnline = [];
   let showCompatibleOnly = false;
+  const screen = byId('screen');
   const getTradeBuild = () => byId('screen').dataset.tradeBuild || null;
+  const tradeEnabled = () => screen.dataset.tradeLink === 'true';
+  const tradeReady = () => tradeEnabled() && screen.dataset.tradeReady === 'true';
+  const tradePanel = byId('trade-controls');
+  const tradeStatus = byId('trade-status');
+  const tradeAccept = byId('trade-accept');
+  const tradeCancel = byId('trade-cancel');
+  let tradeApi;
+  let stopInvites;
+  let incoming;
+  let flow;
+  let heldForTrade = false;
+  let tradeNotice = '';
+
+  function holdForTrade() {
+    if (!heldForTrade && tradeReady()) {
+      heldForTrade = true;
+      document.dispatchEvent(new Event('player-trade-hold'));
+    }
+  }
+
+  function releaseTradeHold() {
+    if (!heldForTrade) return;
+    heldForTrade = false;
+    document.dispatchEvent(new Event('player-trade-release'));
+  }
+
+  function pendingInvite() {
+    if (incoming?.status !== 'pending') return null;
+    const created = incoming.createdAt?.toMillis();
+    return created != null && Date.now() - created < 120000 ? incoming : null;
+  }
+
+  function renderTrade() {
+    const request = pendingInvite();
+    const canAnswer = Boolean(!flow && request);
+    tradeAccept.hidden = !canAnswer;
+    tradeAccept.disabled = !tradeReady() || request?.romHash !== getTradeBuild();
+    tradeCancel.hidden = !flow && !canAnswer && !heldForTrade;
+    tradeCancel.textContent = canAnswer ? '거절' : '취소';
+    const nickname = playersOnline.find(player => player.uid === request?.fromUid)?.nickname || '상대';
+    const prompt = canAnswer && (nickname + ' 님이 교환을 요청했습니다.'
+      + (tradeAccept.disabled ? ' 게임에서 교환 대기를 시작한 뒤 수락하세요.' : ''));
+    const message = flow?.status || prompt || tradeNotice
+      || (heldForTrade ? '교환할 닉네임을 선택하세요.' : '');
+    tradePanel.hidden = !profile || !tradeEnabled() || !message;
+    tradeStatus.textContent = message;
+  }
+
+  function beginTrade(uid, peerUid, outgoing, status) {
+    const request = { uid, peerUid, outgoing, status, controller: new AbortController() };
+    request.timer = setTimeout(() => finishTrade(request, '교환 요청 시간이 지났습니다.'), 60000);
+    flow = request;
+    tradeNotice = '';
+    renderOnline(playersOnline);
+    return request;
+  }
+
+  function finishTrade(request, message, keepWaiting = false) {
+    if (request !== flow) return;
+    flow = undefined;
+    clearTimeout(request.timer);
+    request.stopWatch?.();
+    request.controller.abort();
+    request.link?.close();
+    if (incoming?.nonce === request.invite?.nonce) incoming = undefined;
+    if (!keepWaiting) releaseTradeHold();
+    tradeNotice = message;
+    renderOnline(playersOnline);
+    if (request.invite) {
+      return tradeApi.closeTradeInvite({ db, data, invite: request.invite, uid: request.uid }).catch(() => {});
+    }
+  }
+
+  async function connectTrade(request) {
+    if (request !== flow || request.connecting) return;
+    if (!tradeReady() || request.invite.romHash !== getTradeBuild()) {
+      return finishTrade(request, '게임에서 교환 대기를 시작한 뒤 다시 시도하세요.');
+    }
+    request.connecting = true;
+    request.status = '상대와 연결하는 중…';
+    renderTrade();
+    try {
+      const link = await tradeApi.connectTrade({
+        db, data, invite: request.invite, uid: request.uid, romHash: getTradeBuild(), signal: request.controller.signal,
+      });
+      if (request !== flow) return link.close();
+      clearTimeout(request.timer);
+      request.link = link;
+      request.status = '연결됐습니다. 게임 화면에서 교환하세요.';
+      renderTrade();
+      heldForTrade = false;
+      const outcomes = {
+        complete: '교환이 끝났습니다.',
+        failed: '교환 연결이 끊겼습니다. 다시 시도하세요.',
+        unavailable: '교환 대기 상태가 바뀌었습니다.',
+        cancelled: '교환을 취소했습니다.',
+      };
+      document.dispatchEvent(new CustomEvent('player-trade-connect', {
+        detail: {
+          channel: link.channel, initiator: request.outgoing, romHash: request.invite.romHash,
+          finish: reason => finishTrade(request, outcomes[reason] || outcomes.failed),
+        },
+      }));
+    } catch {
+      finishTrade(request, '상대와 연결하지 못했습니다. 다시 시도하세요.');
+    }
+  }
+
+  async function invitePlayer(player) {
+    const uid = auth.currentUser?.uid;
+    if (!profile || !uid || !tradeApi || !tradeReady() || flow || pendingInvite()
+      || !compatibleTradePeers(playersOnline, getTradeBuild(), uid).some(peer => peer.uid === player.uid)) return;
+    if (!navigator.onLine) {
+      tradeNotice = '인터넷에 연결한 뒤 다시 시도하세요.';
+      return renderTrade();
+    }
+    const request = beginTrade(uid, player.uid, true, player.nickname + ' 님에게 교환을 요청하는 중…');
+    try {
+      const invite = await tradeApi.sendTradeInvite({ db, data, fromUid: uid, toUid: player.uid, romHash: getTradeBuild() });
+      if (flow !== request) return tradeApi.closeTradeInvite({ db, data, invite, uid }).catch(() => {});
+      request.invite = invite;
+      request.status = player.nickname + ' 님의 응답을 기다리는 중…';
+      renderTrade();
+      request.stopWatch = tradeApi.watchTradeInvite({ db, data, uid: player.uid, onChange: current => {
+        if (request !== flow) return;
+        if (current?.nonce !== invite.nonce || current.status === 'closed') {
+          finishTrade(request, '상대가 교환 요청을 종료했습니다.');
+        } else if (current.status === 'accepted' || current.status === 'offered') {
+          request.invite = current;
+          connectTrade(request);
+        }
+      }, onError: () => finishTrade(request, '상대의 응답을 확인하지 못했습니다.') });
+    } catch {
+      finishTrade(request, '교환 요청을 보내지 못했습니다. 잠시 뒤 다시 시도하세요.');
+    }
+  }
+
+  function watchInvites(uid) {
+    if (!tradeEnabled() || stopInvites) return;
+    let stopped = false;
+    let unsubscribe;
+    stopInvites = () => { stopped = true; unsubscribe?.(); };
+    import('./trade-signaling.js?v=1.8.0').then(api => {
+      if (stopped) return;
+      tradeApi = api;
+      unsubscribe = api.watchTradeInvite({ db, data, uid, onChange: invite => {
+        if (stopped) return;
+        incoming = invite;
+        if (flow?.outgoing === false && (invite?.nonce !== flow.invite.nonce || invite.status === 'closed')) {
+          finishTrade(flow, '상대가 교환 요청을 종료했습니다.');
+        } else if (flow?.outgoing && !flow.connecting && invite?.status === 'pending'
+          && invite.fromUid === flow.peerUid && uid > invite.fromUid) {
+          // Simultaneous reverse invites converge on the request from the smaller UID.
+          finishTrade(flow, '', true);
+        }
+        renderOnline(playersOnline);
+      }, onError: () => {
+        if (stopped) return;
+        tradeNotice = '교환 요청을 불러오지 못했습니다.';
+        renderTrade();
+      } });
+      renderOnline(playersOnline);
+    }).catch(() => {
+      if (stopped) return;
+      stopInvites = undefined;
+      tradeNotice = '교환 기능을 불러오지 못했습니다.';
+      renderTrade();
+    });
+  }
 
   function renderMessages(snapshot) {
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
@@ -94,12 +264,19 @@ async function connectChat(authButton) {
     const visiblePlayers = showCompatibleOnly ? compatibleTradePeers(players, getTradeBuild(), auth.currentUser?.uid) : players;
     onlineButton.textContent = (showCompatibleOnly ? '같은 개조판 ' : '온라인 ') + visiblePlayers.length + '명';
     const emptyMessage = showCompatibleOnly ? '같은 개조판을 실행 중인 상대가 없습니다.' : '현재 접속자가 없습니다.';
-    const names = visiblePlayers.length ? visiblePlayers.map(player => player.nickname) : [emptyMessage];
-    onlineList.replaceChildren(...names.map(name => {
+    const selectable = showCompatibleOnly && tradeApi && tradeReady() && !flow && !pendingInvite();
+    onlineList.replaceChildren(...(visiblePlayers.length ? visiblePlayers : [{ nickname: emptyMessage }]).map(player => {
       const item = document.createElement('li');
-      item.textContent = name;
+      if (selectable && player.uid) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = player.nickname;
+        button.addEventListener('click', () => invitePlayer(player));
+        item.append(button);
+      } else item.textContent = player.nickname;
       return item;
     }));
+    renderTrade();
   }
 
   function stopRoom() {
@@ -107,6 +284,12 @@ async function connectChat(authButton) {
     unsubscribeRoom = undefined;
     presence?.stop();
     presence = undefined;
+    stopInvites?.();
+    stopInvites = undefined;
+    if (flow) finishTrade(flow, '교환을 취소했습니다.');
+    else releaseTradeHold();
+    incoming = undefined;
+    renderTrade();
   }
 
   function updateRoom() {
@@ -131,6 +314,7 @@ async function connectChat(authButton) {
     const cooldownTimer = setInterval(renderCooldown, 1000);
     unsubscribeRoom = () => { stopMessages(); stopRate(); clearInterval(cooldownTimer); };
     presence = watchPresence({ db, data, uid, nickname: profile.nickname, getTradeBuild, onChange: renderOnline });
+    watchInvites(uid);
   }
 
   async function sessionChanged() {
@@ -258,24 +442,62 @@ async function connectChat(authButton) {
     const open = onlineList.hidden;
     if (!open) {
       showCompatibleOnly = false;
+      if (!flow) releaseTradeHold();
       renderOnline(playersOnline);
     }
     setOnlineOpen(open);
   });
   document.addEventListener('player-rom-build', () => {
+    if (flow && flow.invite?.romHash !== getTradeBuild()) finishTrade(flow, '교환을 취소했습니다.');
+    releaseTradeHold();
     showCompatibleOnly = false;
     renderOnline(playersOnline);
     presence?.refresh();
   });
   document.addEventListener('player-trade-wait', () => {
+    if (screen.dataset.tradeReady !== 'true') {
+      releaseTradeHold();
+      if (flow && !flow.link) finishTrade(flow, '게임의 교환 대기가 끝났습니다.');
+      showCompatibleOnly = false;
+      renderOnline(playersOnline);
+      return;
+    }
     if (profile) {
       showCompatibleOnly = true;
+      tradeNotice = '';
+      holdForTrade();
       renderOnline(playersOnline);
       setOnlineOpen(true);
     }
     else setStatus('온라인 닉네임을 보려면 채팅 계정으로 로그인하고 닉네임을 등록하세요.');
     byId('chat').scrollIntoView({ block: 'nearest' });
   });
+  tradeAccept.addEventListener('click', async () => {
+    const invite = pendingInvite();
+    const uid = auth.currentUser?.uid;
+    if (!invite || !uid || !tradeReady() || flow || invite.romHash !== getTradeBuild()) return;
+    const request = beginTrade(uid, invite.fromUid, false, '교환 요청을 수락하는 중…');
+    request.invite = invite;
+    try {
+      request.invite = await tradeApi.acceptTradeInvite({ db, data, invite, romHash: getTradeBuild() });
+      await connectTrade(request);
+    } catch { finishTrade(request, '교환 요청을 수락하지 못했습니다.'); }
+  });
+  tradeCancel.addEventListener('click', async () => {
+    if (flow) return finishTrade(flow, '교환을 취소했습니다.');
+    const invite = pendingInvite();
+    if (invite && auth.currentUser) {
+      incoming = undefined;
+      tradeNotice = '교환 요청을 거절했습니다.';
+      renderOnline(playersOnline);
+      await tradeApi.closeTradeInvite({ db, data, invite, uid: auth.currentUser.uid }).catch(() => {});
+    } else {
+      releaseTradeHold();
+      showCompatibleOnly = false;
+      renderOnline(playersOnline);
+    }
+  });
+
   profileForm.addEventListener('submit', event => {
     event.preventDefault();
     const user = auth.currentUser;

@@ -1,7 +1,8 @@
-const CACHE = 'gold-player-v1.7.0';
-const SHELL = ['./', './index.html', './style.css?v=1.6.0', './app.js?v=1.7.0', './files.js?v=1.4.0', './storage.js', './audio.js?v=1.4.1',
-  './chat.js?v=1.7.0', './chat-config.js?v=1.5.0', './chat-presence.js?v=1.7.0',
-  './vendor/GameBoyCore.js?v=1.7.0', './manifest.webmanifest', './Silkscreen-Bold.ttf', './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
+const CACHE = 'gold-player-v1.8.0';
+const SHELL = ['./', './index.html', './style.css?v=1.6.0', './app.js?v=1.8.0', './files.js?v=1.4.0', './storage.js', './audio.js?v=1.4.1',
+  './chat.js?v=1.8.0', './chat-config.js?v=1.5.0', './chat-presence.js?v=1.8.0', './trade-signaling.js?v=1.8.0',
+  './link-serial.js?v=1.8.0',
+  './vendor/GameBoyCore.js?v=1.8.0', './manifest.webmanifest', './Silkscreen-Bold.ttf', './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)));
 });

@@ -1,6 +1,7 @@
 import { validateRom, validateSave, speedLimit, clampSpeed, baseSaveName, isRomFilename } from './files.js?v=1.4.0';
 import { readLocal, writeLocal } from './storage.js';
 import { resumeAudio, setOutputMuted } from './audio.js?v=1.4.1';
+import { attachLinkSerial } from './link-serial.js?v=1.8.0';
 
 const byId = id => document.getElementById(id);
 const canvas = byId('screen');
@@ -33,6 +34,8 @@ let storedRom;
 let installPrompt;
 let temporaryState;
 let showingTradeWait = false;
+let holdTradeWait = false;
+let trade;
 const held = new Map();
 const keys = Array.from({ length: 8 }, () => ({ ticks: 0, edges: [] }));
 
@@ -64,33 +67,47 @@ function stop() {
 }
 
 function play() {
-  if (!core || busy || document.hidden || menu.open) return;
+  if (!core || (busy && !trade) || document.hidden || menu.open) return;
   clearInterval(timer);
   setOutputMuted(!sound.checked);
   core.stopEmulator &= 1;
   timer = setInterval(() => {
     try {
+      if (trade ? !trade.started || !trade.serial?.canRun() : holdTradeWait) return;
       core.run();
       checkTradeWait();
+      trade?.checkRoom();
       keys.forEach((input, key) => {
         if (input.ticks > 0) input.ticks--;
         if (!input.ticks && input.edges.length) sendKey(key, input.edges.shift());
       });
     }
-    catch { stop(); status('게임 실행 중 오류가 발생했습니다. 마지막 세이브로 다시 열어 주세요.', true); }
+    catch {
+      if (trade) trade.end('failed');
+      else { stop(); status('게임 실행 중 오류가 발생했습니다. 마지막 세이브로 다시 열어 주세요.', true); }
+    }
   }, settings[6]);
   byId('play-state').textContent = '플레이 중';
 }
 
 function checkTradeWait() {
   const ram = core.GBCMemory;
-  // This build waits for a link at 5c:4c64 after choosing Trade on the second floor.
-  const waiting = current?.hash === tradeRomHash
+  // This exact Korean build waits for a link at 5c:4c64 after choosing Trade on the second floor.
+  const waiting = Boolean(!trade && current?.hash === tradeRomHash
     && ram?.[0xafd] === 20 && ram[0xafe] === 1 && ram[0x20e] === 1
-    && ram[0x21d] === 0x5c && (ram[0x21e] | ram[0x21f] << 8) === 0x4c64;
-  if (waiting && !showingTradeWait) document.dispatchEvent(new Event('player-trade-wait'));
+    && ram[0x21d] === 0x5c && (ram[0x21e] | ram[0x21f] << 8) === 0x4c64);
+  if (waiting === showingTradeWait) return;
   showingTradeWait = waiting;
+  canvas.dataset.tradeReady = String(waiting);
+  document.dispatchEvent(new Event('player-trade-wait'));
 }
+
+document.addEventListener('player-trade-hold', () => {
+  if (!showingTradeWait || trade || busy) return;
+  holdTradeWait = true;
+  releaseKeys();
+});
+document.addEventListener('player-trade-release', () => { holdTradeWait = false; });
 
 // Open the audio context inside the browser's activation, before file reads or dialog callbacks.
 for (const type of ['click', 'touchend', 'keydown']) {
@@ -152,7 +169,8 @@ function boot(record, saved) {
   next.start();
   core = next;
   current = record;
-  showingTradeWait = false;
+  holdTradeWait = showingTradeWait = false;
+  canvas.dataset.tradeReady = 'false';
   canvas.dataset.tradeBuild = record.hash === tradeRomHash ? tradeRomHash : '';
   document.dispatchEvent(new Event('player-rom-build'));
   current.info.ramBytes = core.saveSRAMState().length;
@@ -196,6 +214,153 @@ function restoreCoreState(savedState) {
   next.requestDraw();
   core = next;
 }
+
+canvas.dataset.tradeLink = 'true';
+document.addEventListener('player-trade-connect', event => {
+  const { channel, initiator, romHash, finish } = event.detail;
+  if (!core || busy || document.hidden || menu.open || !showingTradeWait ||
+      current.hash !== tradeRomHash || romHash !== tradeRomHash || channel.readyState !== 'open') {
+    holdTradeWait = false;
+    finish('unavailable');
+    return;
+  }
+
+  let before;
+  try { before = captureCoreState(); }
+  catch { holdTradeWait = false; finish('unavailable'); return; }
+  const record = current;
+  const backup = snapshot();
+  const key = 'save:' + record.hash;
+  const session = { started: false, checkRoom, end };
+  let ending = false;
+  let retries;
+  let deadline;
+  let commit;
+  let lastSaved;
+  let roundSnapshot;
+  let ownRound = 0;
+  let peerRound = 0;
+  let enteredRoom = false;
+  let leftRoom = false;
+  let peerLeft = false;
+  busy = true;
+  trade = session;
+  holdTradeWait = false;
+  releaseKeys();
+
+  function send(packet) {
+    if (channel.readyState !== 'open' || channel.bufferedAmount > 16384) throw new Error('Link lost');
+    channel.send(JSON.stringify(packet));
+  }
+
+  function sendControl(packet) {
+    try { send(packet); return true; }
+    catch { end('failed'); return false; }
+  }
+
+  function begin() {
+    if (session.started || !session.serial || ending) return;
+    clearInterval(retries);
+    clearTimeout(deadline);
+    session.started = true;
+    play();
+  }
+
+  function verifySave() {
+    if (ending || commit || ownRound !== peerRound || ownRound === 0) return;
+    const saved = roundSnapshot;
+    commit = writeLocal(key, saved).then(() => {
+      lastSaved = saved;
+      clearTemporaryState();
+    }).catch(() => end('failed')).finally(() => { commit = undefined; });
+  }
+
+  function savedTrade() {
+    if (ending) return;
+    roundSnapshot = snapshot();
+    if (sendControl({ type: 'trade-saved', round: ++ownRound })) verifySave();
+  }
+
+  function checkRoom() {
+    const ram = core.GBCMemory;
+    if (ram[0xafd] === 20 && ram[0xafe] === 2) enteredRoom = true;
+    if (!enteredRoom || leftRoom || ram[0xafd] !== 20 || ram[0xafe] !== 1) return;
+    leftRoom = sendControl({ type: 'trade-left' });
+    if (leftRoom && peerLeft) end(lastSaved ? 'complete' : 'cancelled', true);
+  }
+
+  function receive(event) {
+    if (ending) return;
+    let packet;
+    try {
+      if (typeof event.data !== 'string' || event.data.length > 256) throw new Error();
+      packet = JSON.parse(event.data);
+      if (!packet || typeof packet.type !== 'string') throw new Error();
+    } catch { end('failed'); return; }
+
+    if (packet.type === 'link-ready' && initiator) {
+      if (!session.started && session.serial && sendControl({ type: 'link-start' })) begin();
+      return;
+    }
+    if (packet.type === 'link-start' && !initiator) { begin(); return; }
+    if (!session.started) { end('failed'); return; }
+    if (packet.type === 'serial-offer' || packet.type === 'serial-reply') session.serial.receive(packet);
+    else if (packet.type === 'trade-saved' && packet.round === peerRound + 1 && packet.round <= ownRound + 1) {
+      peerRound = packet.round;
+      verifySave();
+    } else if (packet.type === 'trade-left' && !peerLeft) {
+      peerLeft = true;
+      if (leftRoom) end(lastSaved ? 'complete' : 'cancelled', true);
+    } else end('failed');
+  }
+
+  const lost = () => end('failed');
+  function end(reason, exited = false) {
+    if (ending) return;
+    ending = true;
+    clearInterval(retries);
+    clearTimeout(deadline);
+    channel.removeEventListener('message', receive);
+    channel.removeEventListener('close', lost);
+    channel.removeEventListener('error', lost);
+    stop();
+    session.serial?.stop();
+    void (async () => {
+      await commit;
+      let restored = true;
+      if (!exited && session.started) {
+        try {
+          if (lastSaved) boot(record, lastSaved);
+          else restoreCoreState(before);
+        } catch {
+          try { boot(record, lastSaved || backup); }
+          catch { restored = false; }
+        }
+      }
+      trade = undefined;
+      busy = false;
+      if (restored) play();
+      else status('교환 이전 게임을 복원하지 못했습니다. 기기 보관함에서 다시 열어 주세요.', true);
+      finish(lastSaved ? 'complete' : reason);
+    })();
+  }
+
+  channel.addEventListener('message', receive);
+  channel.addEventListener('close', lost);
+  channel.addEventListener('error', lost);
+  deadline = setTimeout(lost, 10000);
+  writeLocal(key, backup).then(() => {
+    if (ending) return;
+    session.serial = attachLinkSerial(core, {
+      role: initiator ? 'master' : 'external', send, onError: lost, onTradeSaved: savedTrade,
+    });
+    if (!initiator) {
+      const ready = () => sendControl({ type: 'link-ready' });
+      retries = setInterval(ready, 250);
+      ready();
+    }
+  }).catch(lost);
+});
 
 function saveTemporaryState() {
   if (!core || busy || menu.open) return;
@@ -269,6 +434,10 @@ function queueKey(key, down) {
 
 function changeKey(key, source, down, button, cancelled = false) {
   if (key === undefined || !core || !timer) return;
+  if (holdTradeWait) {
+    if (key !== 5 || !down) return;
+    holdTradeWait = false;
+  }
   if (down) {
     if (held.has(source)) return;
     const alreadyDown = [...held.values()].includes(key);
@@ -490,10 +659,10 @@ byId('export-save').addEventListener('click', async () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { stop(); persist(); }
+  if (document.hidden) { stop(); if (trade) trade.end('cancelled'); else persist(); }
   else play();
 });
-window.addEventListener('pagehide', () => { stop(); persist(); clearTemporaryState(); });
+window.addEventListener('pagehide', () => { stop(); if (trade) trade.end('cancelled'); else persist(); clearTemporaryState(); });
 setInterval(() => { if (core && !busy) persist(); }, 5000);
 
 window.addEventListener('beforeinstallprompt', event => {

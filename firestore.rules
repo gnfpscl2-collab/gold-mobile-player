@@ -73,6 +73,136 @@ service cloud.firestore {
       allow create, update: if validPresence(uid);
     }
 
+    function supportedTradeBuild() {
+      return '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
+    }
+
+    function readyToTrade(uid) {
+      let presence = get(/databases/$(database)/documents/chatPresence/$(uid));
+      return presence != null
+        && presence.data.get('tradeBuild', null) == supportedTradeBuild()
+        && presence.data.seenAt + duration.value(100, 's') > request.time;
+    }
+
+    function tradeInvitePath(toUid) {
+      return /databases/$(database)/documents/tradeInvites/$(toUid);
+    }
+
+    function tradeParty(invite) {
+      return request.auth.uid == invite.fromUid || request.auth.uid == invite.toUid;
+    }
+
+    function tradeOpen(invite) {
+      return invite.status != 'closed'
+        && request.time < invite.createdAt + duration.value(invite.status == 'pending' ? 120 : 300, 's');
+    }
+
+    function validTradeInvite(toUid) {
+      let invite = request.resource.data;
+      return eligible()
+        && invite.keys().hasOnly(['fromUid', 'toUid', 'nonce', 'romHash', 'createdAt', 'status'])
+        && invite.toUid == toUid
+        && invite.fromUid == request.auth.uid
+        && toUid != invite.fromUid
+        && invite.nonce is string
+        && invite.nonce.matches('[0-9a-f]{32}')
+        && invite.romHash == supportedTradeBuild()
+        && invite.createdAt == request.time
+        && invite.status == 'pending'
+        && readyToTrade(invite.fromUid)
+        && readyToTrade(toUid);
+    }
+
+    function tradeOfferSaved(invite) {
+      let signal = getAfter(/databases/$(database)/documents/tradeSignals/$(invite.toUid));
+      return signal != null && signal.data.nonce == invite.nonce
+        && signal.data.inviteAt == invite.createdAt && signal.data.offeredAt == request.time
+        && signal.data.answer == null;
+    }
+
+    function validTradeTransition() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return eligible()
+        && tradeParty(before)
+        && after.diff(before).affectedKeys().hasOnly(['status'])
+        && (
+          (after.status == 'closed' && before.status != 'closed')
+          || (tradeOpen(before) && before.status == 'pending' && after.status == 'accepted'
+            && request.auth.uid == before.toUid && readyToTrade(before.fromUid) && readyToTrade(before.toUid))
+          || (tradeOpen(before) && before.status == 'accepted' && after.status == 'offered'
+            && request.auth.uid == before.fromUid && tradeOfferSaved(before))
+        );
+    }
+
+    match /tradeInvites/{toUid} {
+      allow get: if eligible() && (request.auth.uid == toUid
+        || (resource != null && request.auth.uid == resource.data.fromUid));
+      allow create: if validTradeInvite(toUid);
+      allow update: if (!tradeOpen(resource.data)
+          && request.time >= resource.data.createdAt + duration.value(5, 's')
+          && request.resource.data.nonce != resource.data.nonce
+          && validTradeInvite(toUid))
+        || validTradeTransition();
+    }
+
+    function validTradeSdp(sdp) {
+      return sdp is string && sdp.size() >= 1 && sdp.size() <= 32000;
+    }
+
+    function validNewTradeOffer(toUid) {
+      let before = get(tradeInvitePath(toUid)).data;
+      let after = getAfter(tradeInvitePath(toUid)).data;
+      let signal = request.resource.data;
+      return eligible()
+        && request.auth.uid == before.fromUid
+        && tradeOpen(before)
+        && before.status == 'accepted'
+        && after.status == 'offered'
+        && before.nonce == after.nonce
+        && signal.keys().hasOnly(['nonce', 'inviteAt', 'offeredAt', 'offer', 'answer'])
+        && signal.nonce == before.nonce
+        && signal.inviteAt == before.createdAt
+        && signal.offeredAt == request.time
+        && validTradeSdp(signal.offer)
+        && signal.answer == null;
+    }
+
+    function canReadTradeSignal(toUid) {
+      let invite = get(tradeInvitePath(toUid)).data;
+      return tradeParty(invite)
+        && tradeOpen(invite)
+        && invite.status == 'offered'
+        && (resource == null || (resource.data.nonce == invite.nonce
+          && resource.data.inviteAt == invite.createdAt));
+    }
+
+    function validTradeAnswer(toUid) {
+      let invite = get(tradeInvitePath(toUid)).data;
+      return request.auth.uid == toUid
+        && tradeOpen(invite)
+        && invite.status == 'offered'
+        && resource.data.nonce == invite.nonce
+        && resource.data.inviteAt == invite.createdAt
+        && resource.data.answer == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['answer'])
+        && validTradeSdp(request.resource.data.answer);
+    }
+
+    function closesTrade(toUid) {
+      let before = get(tradeInvitePath(toUid)).data;
+      let after = getAfter(tradeInvitePath(toUid)).data;
+      return tradeParty(before) && before.nonce == after.nonce
+        && before.status != 'closed' && after.status == 'closed';
+    }
+
+    match /tradeSignals/{toUid} {
+      allow get: if eligible() && canReadTradeSignal(toUid);
+      allow create: if validNewTradeOffer(toUid);
+      allow update: if validNewTradeOffer(toUid) || (eligible() && validTradeAnswer(toUid));
+      allow delete: if eligible() && closesTrade(toUid);
+    }
+
     function statePath() {
       return /databases/$(database)/documents/chatState/current;
     }

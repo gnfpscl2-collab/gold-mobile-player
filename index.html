@@ -12,9 +12,9 @@
   <link rel="apple-touch-icon" href="./icons/icon-180.png">
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./style.css?v=1.6.0">
-  <script src="./vendor/GameBoyCore.js?v=1.7.0" defer></script>
-  <script type="module" src="./app.js?v=1.7.0"></script>
-  <script type="module" src="./chat.js?v=1.7.0"></script>
+  <script src="./vendor/GameBoyCore.js?v=1.8.0" defer></script>
+  <script type="module" src="./app.js?v=1.8.0"></script>
+  <script type="module" src="./chat.js?v=1.8.0"></script>
 </head>
 <body>
   <main>
@@ -99,6 +99,13 @@
         <button id="chat-online-toggle" type="button" aria-controls="chat-online" aria-expanded="false" hidden>온라인 목록</button>
       </div>
       <ul id="chat-online" aria-label="온라인 닉네임" hidden></ul>
+      <div id="trade-controls" hidden>
+        <p id="trade-status" class="chat-note" role="status"></p>
+        <div class="chat-actions">
+          <button id="trade-accept" type="button" class="primary" hidden>수락</button>
+          <button id="trade-cancel" type="button" hidden>취소</button>
+        </div>
+      </div>
       <form id="chat-profile" class="chat-form" hidden>
         <label for="chat-nickname">닉네임</label>
         <p id="chat-nickname-help">한글 6자 또는 영문 12자까지. 섞어 쓰면 한글 1자를 영문 2자로 계산합니다. 한 번 등록한 이름은 바꿀 수 없습니다.</p>

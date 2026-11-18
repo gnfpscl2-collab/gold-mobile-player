@@ -66,6 +66,9 @@ class Target {
     if (!this.listeners.has(type)) this.listeners.set(type, []);
     this.listeners.get(type).push(handler);
   }
+  removeEventListener(type, handler) {
+    this.listeners.set(type, (this.listeners.get(type) || []).filter(listener => listener !== handler));
+  }
   async emit(type, event = {}) {
     for (const handler of this.listeners.get(type) || []) {
       await handler({ target: this, preventDefault() {}, ...event });
@@ -73,7 +76,7 @@ class Target {
   }
 }
 
-async function harness({ apple = false, preferences, storedRecords, emulatedRomHash } = {}) {
+async function harness({ apple = false, preferences, storedRecords, emulatedRomHash, attachLinkSerial } = {}) {
   const validators = await import(pathToFileURL(path.join(__dirname, 'files.js')).href);
   const source = await fs.readFile(path.join(__dirname, 'app.js'), 'utf8');
   const elements = new Map();
@@ -171,7 +174,7 @@ async function harness({ apple = false, preferences, storedRecords, emulatedRomH
     run() { this.sampledKeys.push([...this.downKeys]); }
   }
   const context = vm.createContext({
-    ...validators, document, window, GameBoyCore: Core,
+    ...validators, document, window, GameBoyCore: Core, attachLinkSerial,
     navigator,
     matchMedia: () => ({ matches: false }),
     crypto: emulatedRomHash ? {
@@ -417,7 +420,9 @@ test('the verified Korean ROM opens the online list once per accepted trade prom
     emulatedRomHash: '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1',
   });
   const events = [];
-  h.document.dispatchEvent = event => { if (event.type === 'player-trade-wait') events.push(event.type); };
+  h.document.dispatchEvent = event => {
+    if (event.type === 'player-trade-wait') events.push(h.element('screen').dataset.tradeReady);
+  };
   await h.load('Pokemon gold(K).gbc', rom('FIRST'));
   const ram = h.latest().GBCMemory = new Uint8Array(0xb00);
   ram[0xafd] = 20;
@@ -434,13 +439,52 @@ test('the verified Korean ROM opens the online list once per accepted trade prom
   await h.element('close-menu').emit('click');
   await h.settle();
   h.tick(3);
-  assert.deepEqual(events, ['player-trade-wait'], 'pausing in the menu must not reopen the list');
+  assert.deepEqual(events, ['true'], 'pausing in the menu must not reopen the list');
   ram[0x21e] = 0x5a;
   h.tick();
   ram[0x21e] = 0x64;
   h.tick(2);
-  assert.deepEqual(events, ['player-trade-wait', 'player-trade-wait']);
+  assert.deepEqual(events, ['true', 'false', 'true']);
   assert.equal(h.element('screen').dataset.tradeBuild, '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1');
+});
+
+test('only a matching ROM may connect and a broken link never persists its partial SRAM', async () => {
+  const hash = '940bb0ce65f3ed960aa2bd3dfc1411389aa0f64189849dc5b1a3b3ec2bc4e9a1';
+  let stopped = false;
+  const h = await harness({
+    emulatedRomHash: hash,
+    attachLinkSerial: () => ({ canRun: () => true, stop: () => { stopped = true; } }),
+  });
+  await h.load('Pokemon gold(K).gbc', rom('FIRST'));
+  const ram = h.latest().GBCMemory = new Uint8Array(0xb01);
+  ram[0xafd] = 20;
+  ram[0xafe] = 1;
+  ram[0x20e] = 1;
+  ram.set([0x5c, 0x64, 0x4c], 0x21d);
+  h.tick();
+  await h.document.emit('player-trade-hold');
+  h.tick(3);
+  assert.equal(h.latest().sampledKeys.length, 1, 'the online prompt holds the game until the connection is ready');
+
+  const outcomes = [];
+  const channel = new Target();
+  channel.readyState = 'open';
+  channel.send = () => {};
+  const finish = reason => outcomes.push(reason);
+  await h.document.emit('player-trade-connect', { detail: { channel, initiator: true, romHash: 'wrong-build', finish } });
+  assert.deepEqual(outcomes, ['unavailable']);
+  await h.document.emit('player-trade-connect', { detail: { channel, initiator: true, romHash: hash, finish } });
+  await h.settle();
+  await channel.emit('message', { data: '{"type":"link-ready"}' });
+  h.latest().ram[0] = 0x98;
+  await h.autosave();
+  assert.equal(h.records.get('save:' + hash).ram[0], 0x11);
+  await channel.emit('close');
+  await h.settle();
+  assert.equal(h.latest().ram[0], 0x11);
+  assert.equal(h.records.get('save:' + hash).ram[0], 0x11);
+  assert.equal(stopped, true);
+  assert.deepEqual(outcomes, ['unavailable', 'failed']);
 });
 
 test('a different ROM is not announced as trade-compatible', async () => {
