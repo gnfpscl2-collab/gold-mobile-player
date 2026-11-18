@@ -5755,6 +5755,10 @@ GameBoyCore.prototype.executeIteration = function () {
 	var opcodeToExecute = 0;
 	var timedTicks = 0;
 	while (this.stopEmulator == 0) {
+		if (this.linkSerial && !this.linkSerial.beforeInstruction()) {
+			this.stopEmulator |= 1;
+			break;
+		}
 		//Interrupt Arming:
 		switch (this.IRQEnableDelay) {
 			case 1:
@@ -5802,7 +5806,10 @@ GameBoyCore.prototype.executeIteration = function () {
 				}
 			}
 		}
-		if (this.serialTimer > 0) {										//Serial Timing
+		if (this.linkSerial) {
+			this.linkSerial.advance(this.CPUTicks);
+		}
+		else if (this.serialTimer > 0) {										//Serial Timing
 			//IRQ Counter:
 			this.serialTimer -= this.CPUTicks;
 			if (this.serialTimer <= 0) {
@@ -5974,7 +5981,10 @@ GameBoyCore.prototype.updateCore = function () {
 			}
 		}
 	}
-	if (this.serialTimer > 0) {										//Serial Timing
+	if (this.linkSerial) {
+		this.linkSerial.advance(this.CPUTicks);
+	}
+	else if (this.serialTimer > 0) {										//Serial Timing
 		//IRQ Counter:
 		this.serialTimer -= this.CPUTicks;
 		if (this.serialTimer <= 0) {

@@ -8,3 +8,5 @@ License: MIT; copyright 2010–2016 Grant Galitz. See LICENSE.GameBoy-Online.txt
 
 The player uses a Web Audio adapter in audio.js. Its GameBoyCore.js advances the MBC3 RTC using emulated cycles and preserves the existing RTC save format.
 No game ROM or Nintendo game assets are included in this app.
+
+The serial adapter uses opt-in core hooks while an authorized session is active.
