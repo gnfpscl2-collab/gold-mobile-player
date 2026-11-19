@@ -67,7 +67,7 @@ function GameBoyCore(canvas, ROMImage) {
 	this.gbcRamBank = 1;						//Currently Switched GameBoy Color ram bank
 	this.gbcRamBankPosition = -0xD000;			//GBC RAM offset from address start.
 	this.gbcRamBankPositionECHO = -0xF000;		//GBC RAM (ECHO mirroring) offset from address start.
-	this.RAMBanks = [0, 1, 2, 4, 16];			//Used to map the RAM banks to maximum size the MBC used can do.
+	this.RAMBanks = [0, 1, 2, 4, 16, 8];			//Used to map the RAM banks to maximum size the MBC used can do.
 	this.ROMBank1offs = 0;						//Offset of the ROM bank switching.
 	this.currentROMBank = 0;					//The parsed current ROM bank selection.
 	this.cartridgeType = 0;						//Cartridge Type
@@ -4845,6 +4845,9 @@ GameBoyCore.prototype.interpretCartridge = function () {
 		case 4:
 			cout("16 RAM banks requested for allocation.", 0);
 			break;
+		case 8:
+			cout("8 RAM banks requested for allocation.", 0);
+			break;
 		default:
 			cout("RAM bank amount requested is unknown, will use maximum allowed by specified MBC type.", 0);
 	}
@@ -4941,6 +4944,9 @@ GameBoyCore.prototype.setupRAM = function () {
 	if (this.cMBC2) {
 		this.numRAMBanks = 1 / 16;
 	}
+	else if (this.cMBC3 && this.ROM[0x149] == 0x05) {
+		this.numRAMBanks = 8; // Japanese Crystal uses the MBC30 extension.
+	}
 	else if (this.cMBC1 || this.cRUMBLE || this.cMBC3 || this.cHuC3) {
 		this.numRAMBanks = 4;
 	}
@@ -4957,7 +4963,14 @@ GameBoyCore.prototype.setupRAM = function () {
 		}
 		//Switched RAM Used
 		var MBCRam = (typeof this.openMBC == "function") ? this.openMBC(this.name) : [];
-		if (MBCRam.length > 0) {
+		if (this.numRAMBanks == 8 && MBCRam.length < 0x10000) {
+			// Earlier builds stored only the first four banks.
+			this.MBCRam = this.getTypedArray(0x10000, 0, "uint8");
+			for (var i = 0; i < MBCRam.length; i++) {
+				this.MBCRam[i] = MBCRam[i];
+			}
+		}
+		else if (MBCRam.length > 0) {
 			//Flash the SRAM into memory:
 			this.MBCRam = this.toTypedArray(MBCRam, "uint8");
 		}
@@ -8005,13 +8018,10 @@ GameBoyCore.prototype.memoryReadMBC7 = function (parentObj, address) {
 GameBoyCore.prototype.memoryReadMBC3 = function (parentObj, address) {
 	//Switchable RAM
 	if (parentObj.MBCRAMBanksEnabled || settings[10]) {
+		if (parentObj.currMBCRAMBank < parentObj.numRAMBanks) {
+			return parentObj.MBCRam[address + parentObj.currMBCRAMBankPosition];
+		}
 		switch (parentObj.currMBCRAMBank) {
-			case 0x00:
-			case 0x01:
-			case 0x02:
-			case 0x03:
-				return parentObj.MBCRam[address + parentObj.currMBCRAMBankPosition];
-				break;
 			case 0x08:
 				return parentObj.latchedSeconds;
 				break;
@@ -8272,12 +8282,12 @@ GameBoyCore.prototype.MBC2WriteROMBank = function (parentObj, address, data) {
 }
 GameBoyCore.prototype.MBC3WriteROMBank = function (parentObj, address, data) {
 	//MBC3 ROM bank switching:
-	parentObj.ROMBank1offs = data & 0x7F;
+	parentObj.ROMBank1offs = data & (parentObj.numRAMBanks == 8 ? 0xFF : 0x7F);
 	parentObj.setCurrentMBC2AND3ROMBank();
 }
 GameBoyCore.prototype.MBC3WriteRAMBank = function (parentObj, address, data) {
 	parentObj.currMBCRAMBank = data;
-	if (data < 4) {
+	if (data < parentObj.numRAMBanks) {
 		//MBC3 RAM bank switching
 		parentObj.currMBCRAMBankPosition = (parentObj.currMBCRAMBank << 13) - 0xA000;
 	}
@@ -8339,16 +8349,14 @@ GameBoyCore.prototype.memoryWriteMBCRAM = function (parentObj, address, data) {
 }
 GameBoyCore.prototype.memoryWriteMBC3RAM = function (parentObj, address, data) {
 	if (parentObj.MBCRAMBanksEnabled || settings[10]) {
+		if (parentObj.currMBCRAMBank < parentObj.numRAMBanks) {
+			parentObj.MBCRam[address + parentObj.currMBCRAMBankPosition] = data;
+			return;
+		}
 		if (parentObj.currMBCRAMBank >= 0x08 && parentObj.currMBCRAMBank <= 0x0C) {
 			parentObj.clockUpdate();
 		}
 		switch (parentObj.currMBCRAMBank) {
-			case 0x00:
-			case 0x01:
-			case 0x02:
-			case 0x03:
-				parentObj.MBCRam[address + parentObj.currMBCRAMBankPosition] = data;
-				break;
 			case 0x08:
 				if (data < 60) {
 					parentObj.RTCSeconds = data;
