@@ -45,13 +45,13 @@ function renderBody(container, lines) {
   }
 }
 
-function jumpTo(index) {
+function jumpTo(index, moveFocus = true) {
   const section = sections[index];
   if (!section) return;
   area.value = String(index);
   section.open = true;
   section.scrollIntoView({ block: 'start' });
-  section.querySelector('summary').focus({ preventScroll: true });
+  if (moveFocus) section.querySelector('summary').focus({ preventScroll: true });
 }
 
 function applyLayout() {
@@ -123,6 +123,6 @@ document.getElementById('open-walkthrough').addEventListener('click', () => {
 retry.addEventListener('click', loadGuide);
 area.addEventListener('change', () => {
   applyLayout();
-  jumpTo(Number(area.value));
+  jumpTo(Number(area.value), false);
 });
 desktop.addEventListener('change', applyLayout);
