@@ -47,10 +47,11 @@ function machine() {
   sandbox.window = sandbox;
   createContext(sandbox);
   runInContext(source, sandbox);
-  function boot(rtc, speed = 1) {
+  function boot(rtc, speed = 1, rom = cartridge, ram) {
     sandbox.settings[6] = speed >= 3 ? 4 : 8;
-    const core = new sandbox.GameBoyCore(canvas(), cartridge.toString('latin1'));
+    const core = new sandbox.GameBoyCore(canvas(), rom.toString('latin1'));
     if (rtc) core.openRTC = () => rtc;
+    if (ram) core.openMBC = () => ram;
     core.start();
     core.setSpeed(speed);
     core.stopEmulator &= 1;
@@ -121,4 +122,31 @@ test('MBC3 RTC latching, halt writes, and 512-day carry use emulated time', () =
   core.clockUpdate();
   assert.equal(core.RTCSeconds, haltedAt + 1);
   assert.equal(core.latchedSeconds, 0, 'latched value remains stable');
+});
+
+test('MBC30 uses eight independent SRAM banks and keeps RTC registers separate', () => {
+  const { boot } = machine();
+  const rom = Buffer.from(cartridge);
+  rom[0x149] = 0x05;
+  const oldSave = Buffer.alloc(0x8000, 0x41);
+  const core = boot(null, 1, rom, oldSave);
+  core.memoryWrite(0x0000, 0x0a);
+  assert.equal(core.memoryRead(0xa000), 0x41);
+  for (let bank = 0; bank < 8; bank++) {
+    core.memoryWrite(0x4000, bank);
+    core.memoryWrite(0xa000, 0x60 + bank);
+  }
+  core.memoryWrite(0x4000, 8);
+  core.memoryWrite(0xa000, 22);
+  core.memoryWrite(0x6000, 0);
+  core.memoryWrite(0x6000, 1);
+  assert.equal(core.memoryRead(0xa000), 22);
+  const save = core.saveSRAMState();
+  assert.equal(save.length, 0x10000);
+  const reopened = boot(core.saveRTCState(), 1, rom, save);
+  reopened.memoryWrite(0x0000, 0x0a);
+  for (let bank = 0; bank < 8; bank++) {
+    reopened.memoryWrite(0x4000, bank);
+    assert.equal(reopened.memoryRead(0xa000), 0x60 + bank);
+  }
 });
