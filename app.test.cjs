@@ -273,7 +273,7 @@ test('first boot on the new ROM copies the previous save and game clock without 
   };
   const h = await harness({ emulatedRomHash: CURRENT_TRADE_BUILD, storedRecords: [[previousKey, previousSave]] });
 
-  await h.load('Pokemon gold(K) v0.4.gbc', rom('FIRST'));
+  await h.load('pokemon_gold_ko_v0_8.gbc', rom('FIRST'));
 
   assert.equal(h.latest().ram[0], 0x73);
   assert.deepEqual([...h.latest().rtc], previousSave.rtc);
@@ -290,7 +290,7 @@ test('the latest ROM can copy a save directly from the first supported version',
     emulatedRomHash: CURRENT_TRADE_BUILD,
     storedRecords: [['save:' + TRADE_BUILDS[0], firstSave]],
   });
-  await h.load('Pokemon gold(K) v0.4.gbc', rom('FIRST'));
+  await h.load('pokemon_gold_ko_v0_8.gbc', rom('FIRST'));
   assert.deepEqual(h.records.get('save:' + CURRENT_TRADE_BUILD), firstSave);
   assert.ok(TRADE_BUILDS.slice(1, -1).every(build => !h.records.has('save:' + build)));
 });
@@ -311,7 +311,7 @@ test('save migration cannot replace existing progress in the new ROM', async t =
         if (key === currentKey) h.records.set(key, current);
       };
 
-      await h.load('Pokemon gold(K) v0.4.gbc', rom('FIRST'));
+      await h.load('pokemon_gold_ko_v0_8.gbc', rom('FIRST'));
 
       assert.equal(h.latest().ram[0], 0x84);
       assert.deepEqual(h.records.get(currentKey), current);

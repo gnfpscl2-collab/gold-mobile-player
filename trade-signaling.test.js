@@ -1,8 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
-  CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD, acceptTradeInvite, closeTradeInvite, connectTrade, sendTradeInvite, watchTradeInvite,
+  CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD, TRADE_BUILDS, acceptTradeInvite, closeTradeInvite, connectTrade, sendTradeInvite, watchTradeInvite,
 } from './trade-signaling.js';
+
+test('the browser and Firestore allow exactly the same trade ROM hashes', async () => {
+  const rules = await readFile(new URL('./firestore.rules', import.meta.url), 'utf8');
+  const rule = /function supportedTradeBuild\(build\) \{\s*return build in \[([^\]]+)\]/.exec(rules);
+  assert.ok(rule);
+  const ruleBuilds = Array.from(rule[1].matchAll(/'([a-f0-9]{64})'/g), match => match[1]);
+  assert.deepEqual(ruleBuilds, TRADE_BUILDS);
+  assert.equal(new Set(TRADE_BUILDS).size, TRADE_BUILDS.length);
+});
 
 test('a mismatched ROM is refused before sending, accepting or opening the trade', async () => {
   const options = { romHash: 'different', fromUid: 'alice', toUid: 'bob' };

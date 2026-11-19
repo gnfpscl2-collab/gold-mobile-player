@@ -1,6 +1,6 @@
-const CACHE = 'gold-player-v1.8.10';
-const SHELL = ['./', './index.html', './style.css?v=1.8.10', './app.js?v=1.8.10', './walkthrough.js?v=1.8.10', './walkthrough-ko.txt', './files.js?v=1.4.0', './storage.js?v=1.8.1', './audio.js?v=1.4.1',
-  './chat.js?v=1.8.8', './chat-config.js?v=1.5.0', './chat-presence.js?v=1.8.0', './trade-signaling.js?v=1.8.8',
+const CACHE = 'gold-player-v1.8.11';
+const SHELL = ['./', './index.html', './style.css?v=1.8.10', './app.js?v=1.8.11', './walkthrough.js?v=1.8.10', './walkthrough-ko.txt', './files.js?v=1.4.0', './storage.js?v=1.8.1', './audio.js?v=1.4.1',
+  './chat.js?v=1.8.11', './chat-config.js?v=1.5.0', './chat-presence.js?v=1.8.0', './trade-signaling.js?v=1.8.11',
   './link-serial.js?v=1.8.0',
   './vendor/GameBoyCore.js?v=1.8.5', './manifest.webmanifest', './Silkscreen-Bold.ttf', './icons/icon.svg', './icons/icon-180.png', './icons/icon-192.png', './icons/icon-512.png'];
 self.addEventListener('install', event => {
