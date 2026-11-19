@@ -446,6 +446,22 @@ test('opening the menu releases held controls, backs up the game, and closing re
   assert.equal(h.isPlaying(), true);
 });
 
+test('a walkthrough left open keeps the emulator paused until its dialog closes', async () => {
+  const h = await harness();
+  await h.load('first.gbc', rom('FIRST'));
+  await h.element('open-menu').emit('click');
+  const guide = h.element('walkthrough');
+  guide.showModal();
+
+  await h.element('close-menu').emit('click');
+  await h.settle();
+  assert.equal(h.isPlaying(), false);
+
+  guide.close();
+  await h.settle();
+  assert.equal(h.isPlaying(), true);
+});
+
 test('S and E use the game menu and registered-tool keys for touch and accessible activation', async () => {
   const html = await fs.readFile(path.join(__dirname, 'index.html'), 'utf8');
   assert.ok(/<button\b[^>]*data-key="7"[^>]*>\s*S(?:\s|<)/.test(html), 'S button uses the game-menu key');

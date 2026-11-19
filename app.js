@@ -13,6 +13,7 @@ const speed = byId('speed');
 const sound = byId('sound');
 sound.checked = true;
 const menu = byId('player-menu');
+const walkthrough = byId('walkthrough');
 const screenSize = byId('screen-size');
 const mobileMax = speedLimit({ userAgent: navigator.userAgent, platform: navigator.platform,
   maxTouchPoints: navigator.maxTouchPoints, coarsePointer: matchMedia('(pointer: coarse)').matches });
@@ -67,7 +68,7 @@ function stop() {
 }
 
 function play() {
-  if (!core || (busy && !trade) || document.hidden || menu.open) return;
+  if (!core || (busy && !trade) || document.hidden || menu.open || walkthrough.open) return;
   clearInterval(timer);
   setOutputMuted(!sound.checked);
   core.stopEmulator &= 1;
@@ -393,7 +394,7 @@ function loadTemporaryState() {
 byId('save-state').addEventListener('click', saveTemporaryState);
 byId('load-state').addEventListener('click', loadTemporaryState);
 document.addEventListener('keydown', event => {
-  if (event.repeat || menu.open || event.target.closest('input, select, textarea, summary')) return;
+  if (event.repeat || menu.open || walkthrough.open || event.target.closest('input, select, textarea, summary')) return;
   if (event.code === 'KeyT') { event.preventDefault(); saveTemporaryState(); }
   if (event.code === 'KeyR') { event.preventDefault(); loadTemporaryState(); }
 });
@@ -527,6 +528,7 @@ byId('open-menu').addEventListener('click', () => {
 });
 byId('close-menu').addEventListener('click', () => menu.close());
 menu.addEventListener('close', play);
+walkthrough.addEventListener('close', play);
 for (const id of ['open-rom', 'open-all-roms']) {
   byId(id).addEventListener('click', () => {
     if (busy) return;
