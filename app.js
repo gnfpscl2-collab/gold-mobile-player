@@ -2,7 +2,7 @@ import { validateRom, validateSave, speedLimit, clampSpeed, baseSaveName, isRomF
 import { readLocal, writeLocal } from './storage.js?v=1.8.12';
 import { resumeAudio, setOutputMuted } from './audio.js?v=1.4.1';
 import { attachLinkSerial } from './link-serial.js?v=1.8.0';
-import { LATEST_GOLD_VERSION, goldBuildVersion, isSupportedTradeBuild } from './trade-signaling.js?v=1.8.12';
+import { LATEST_GOLD_VERSION, goldBuildVersion, isSupportedTradeBuild } from './trade-signaling.js?v=1.8.13';
 
 const byId = id => document.getElementById(id);
 const canvas = byId('screen');
