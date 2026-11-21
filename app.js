@@ -1,14 +1,19 @@
 import { validateRom, validateSave, speedLimit, clampSpeed, baseSaveName, isRomFilename } from './files.js?v=1.4.0';
-import { readLocal, writeLocal, writeLocalIfMissing } from './storage.js?v=1.8.1';
+import { readLocal, writeLocal } from './storage.js?v=1.8.12';
 import { resumeAudio, setOutputMuted } from './audio.js?v=1.4.1';
 import { attachLinkSerial } from './link-serial.js?v=1.8.0';
-import { TRADE_BUILDS, isSupportedTradeBuild } from './trade-signaling.js?v=1.8.11';
+import { LATEST_GOLD_VERSION, goldBuildVersion, isSupportedTradeBuild } from './trade-signaling.js?v=1.8.12';
 
 const byId = id => document.getElementById(id);
 const canvas = byId('screen');
 const romInput = byId('rom-input');
 const romList = byId('rom-list');
 const romExtensions = romInput.accept;
+const latestDownload = byId('latest-rom-download');
+latestDownload.href = 'https://github.com/gnfpscl2-collab/gold-mobile-player/releases/download/gold-v'
+  + LATEST_GOLD_VERSION + '/pokemon_gold_ko_v' + LATEST_GOLD_VERSION.replaceAll('.', '_') + '.gbc';
+latestDownload.textContent = '골드 v' + LATEST_GOLD_VERSION + ' 다운로드';
+byId('walkthrough-download').download = '포켓몬스터 골드 v' + LATEST_GOLD_VERSION + ' 공략집.txt';
 const speed = byId('speed');
 const sound = byId('sound');
 sound.checked = true;
@@ -32,6 +37,7 @@ let current;
 let timer;
 let busy = false;
 let storedRom;
+let storedRomHash;
 let installPrompt;
 let temporaryState;
 let showingTradeWait = false;
@@ -39,6 +45,31 @@ let holdTradeWait = false;
 let trade;
 const held = new Map();
 const keys = Array.from({ length: 8 }, () => ({ ticks: 0, edges: [] }));
+
+async function hashRom(bytes) {
+  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function renderRomBuild() {
+  const resume = byId('restore-rom');
+  const storedVersion = goldBuildVersion(storedRomHash);
+  resume.hidden = !storedRom;
+  resume.textContent = storedVersion ? 'v' + storedVersion + ' 이어 열기' : '이전 ROM 열기';
+  const identity = byId('rom-build');
+  const help = byId('rom-build-help');
+  const selectedHash = current?.hash ?? storedRomHash;
+  const version = goldBuildVersion(selectedHash);
+  const older = version && version !== LATEST_GOLD_VERSION;
+  identity.hidden = !current && !storedRom;
+  help.hidden = identity.hidden || selectedHash === undefined;
+  const label = version ? 'v' + version + (older ? ' (이전 판)' : ' (최신판)')
+    : selectedHash === undefined ? '확인 중…' : '버전 미확인';
+  identity.textContent = (current ? '실행 중인 ROM: ' : '이어 열기 ROM: ') + label;
+  const upgrade = '최신 변경 사항을 적용하려면 다운로드한 ROM을 ‘ROM 파일 찾기’로 여세요.';
+  help.textContent = version === LATEST_GOLD_VERSION
+    ? '이 ROM의 세이브가 있으면 이어가고 없으면 새로 시작합니다.'
+    : upgrade + (older ? ' 세이브는 ROM별로 저장됩니다.' : '');
+}
 
 function status(message, error = false) {
   for (const id of ['status', 'menu-status']) {
@@ -401,25 +432,16 @@ document.addEventListener('keydown', event => {
 
 async function loadRom(name, bytes) {
   const info = validateRom(name, bytes);
-  const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), byte => byte.toString(16).padStart(2, '0')).join('');
+  const hash = await hashRom(bytes);
   stop();
   if (!await persist(true)) throw new Error('현재 게임을 기기에 보관하지 못해 전환을 중단했습니다. 세이브 파일을 저장하고 기기 저장 공간을 확인하세요.');
-  const saveKey = 'save:' + hash;
-  let saved = await readLocal(saveKey);
-  for (let older = TRADE_BUILDS.indexOf(hash) - 1; saved === undefined && older >= 0; older--) {
-    const previousSave = await readLocal('save:' + TRADE_BUILDS[older]);
-    if (previousSave != null) {
-      if (!(previousSave.ram instanceof Uint8Array) || previousSave.ram.length !== info.ramBytes) {
-        throw new Error('기존 개조판의 세이브를 불러오지 못했습니다.');
-      }
-      saved = await writeLocalIfMissing(saveKey, previousSave);
-    }
-  }
+  const saved = await readLocal('save:' + hash);
   boot({ name, bytes, info, hash }, saved);
   storedRom = { name, bytes };
+  storedRomHash = hash;
+  renderRomBuild();
   try {
     await writeLocal('current', storedRom);
-    byId('restore-rom').hidden = false;
   } catch (error) { status(error.message, true); return; }
   status(saved?.ram?.length ? '세이브 복원 완료' : '게임 준비 완료');
   menu.close();
@@ -697,9 +719,17 @@ async function initialize() {
     byId('speed-badge').textContent = speed.value + '배속';
     screenSize.value = [80, 90, 100].includes(preferences?.screenSize) ? String(preferences.screenSize) : '100';
     document.documentElement.style.setProperty('--screen-size', screenSize.value + '%');
-    storedRom = await readLocal('current');
-    byId('restore-rom').hidden = !storedRom;
-    if (storedRom) status('이어 열기 가능');
+    const cachedRom = await readLocal('current');
+    if (!storedRom && cachedRom) {
+      storedRom = cachedRom;
+      renderRomBuild();
+      const verifiedHash = await hashRom(cachedRom.bytes).catch(() => '');
+      if (storedRom === cachedRom) {
+        storedRomHash = verifiedHash;
+        renderRomBuild();
+        status('이어 열기 가능');
+      }
+    }
   } catch (error) { status(error.message, true); }
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {
     status('오프라인 설치를 준비하지 못했습니다. 인터넷에 연결해 새로고침하세요.', true);

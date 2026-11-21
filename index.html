@@ -13,8 +13,8 @@
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./style.css?v=1.8.10">
   <script src="./vendor/GameBoyCore.js?v=1.8.5" defer></script>
-  <script type="module" src="./app.js?v=1.8.11"></script>
-  <script type="module" src="./chat.js?v=1.8.11"></script>
+  <script type="module" src="./app.js?v=1.8.12"></script>
+  <script type="module" src="./chat.js?v=1.8.12"></script>
   <script type="module" src="./walkthrough.js?v=1.8.10"></script>
 </head>
 <body>
@@ -60,11 +60,13 @@
       <div class="menu-heading"><h2 id="menu-title">메뉴</h2><button id="close-menu" class="icon-button" aria-label="메뉴 닫기" title="닫기" autofocus><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
       <div class="utility">
         <section class="file-section">
-          <p class="rom-download">ROM이 없으면 <a href="https://github.com/gnfpscl2-collab/gold-mobile-player/releases/download/gold-v0.8/pokemon_gold_ko_v0_8.gbc">GitHub에서 다운로드</a>하세요.</p>
+          <p class="rom-download"><a id="latest-rom-download" href="https://github.com/gnfpscl2-collab/gold-mobile-player/releases">최신 골드 ROM 다운로드</a></p>
           <button id="open-rom" class="primary wide">ROM 파일 찾기 <span>.gb · .gbc</span></button>
           <div class="file-actions"><button id="open-all-roms">모든 파일 보기</button><button id="restore-rom" hidden>이어 열기</button></div>
           <input id="rom-input" type="file" accept=".gb,.gbc" multiple hidden>
           <ul id="rom-list" aria-label="선택한 ROM 목록" hidden></ul>
+          <p id="rom-build" class="status" hidden></p>
+          <p id="rom-build-help" class="status" hidden></p>
         </section>
         <section>
           <h2>세이브</h2>
@@ -100,7 +102,7 @@
     <dialog id="walkthrough" aria-labelledby="walkthrough-title">
       <div class="guide-header">
         <h2 id="walkthrough-title">공략집</h2>
-        <a href="./walkthrough-ko.txt" download="포켓몬스터 골드 v0.8 공략집.txt">TXT 저장</a>
+        <a id="walkthrough-download" href="./walkthrough-ko.txt" download="포켓몬스터 골드 공략집.txt">TXT 저장</a>
         <form method="dialog"><button class="icon-button" type="submit" aria-label="공략집 닫기" title="닫기" autofocus><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></form>
       </div>
       <label id="guide-jump" class="guide-jump" hidden>지역 이동<select id="guide-area"></select></label>

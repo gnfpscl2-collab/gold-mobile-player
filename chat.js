@@ -210,7 +210,7 @@ async function connectChat(authButton) {
     let stopped = false;
     let unsubscribe;
     stopInvites = () => { stopped = true; unsubscribe?.(); };
-    import('./trade-signaling.js?v=1.8.11').then(api => {
+    import('./trade-signaling.js?v=1.8.12').then(api => {
       if (stopped) return;
       tradeApi = api;
       unsubscribe = api.watchTradeInvite({ db, data, uid, onChange: invite => {

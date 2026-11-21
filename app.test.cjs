@@ -206,15 +206,6 @@ async function harness({ apple = false, preferences, storedRecords, emulatedRomH
       if (controls.onWrite) await controls.onWrite(key, copy);
       records.set(key, copy);
     },
-    async writeLocalIfMissing(key, value) {
-      const copy = structuredClone(value);
-      if (controls.onWrite) await controls.onWrite(key, copy);
-      if (records.has(key)) return structuredClone(records.get(key));
-      if (controls.failWrite?.(key, copy)) throw new Error('storage full');
-      writes.push({ key, value: copy });
-      records.set(key, copy);
-      return structuredClone(copy);
-    },
   });
   // The real controller runs unchanged; only browser and storage boundaries are supplied by the test.
   vm.runInContext(source.replace(/^import .*;\r?\n/gm, ''), context, { filename: 'app.js' });
@@ -262,63 +253,98 @@ function saveKey(bytes) {
   return 'save:' + createHash('sha256').update(bytes).digest('hex');
 }
 
-test('first boot on the new ROM copies the previous save and game clock without changing the old slot', async () => {
+test('opening a ROM restores only its own save and game clock', async () => {
   const { CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD } = await import('./trade-signaling.js');
   const previousKey = 'save:' + PREVIOUS_TRADE_BUILD;
   const currentKey = 'save:' + CURRENT_TRADE_BUILD;
-  const previousSave = {
-    ram: new Uint8Array(32768).fill(0x73),
+  const previousSave = { ram: new Uint8Array(32768).fill(0x73), savedAt: 1234 };
+  const currentSave = {
+    ram: new Uint8Array(32768).fill(0x84),
     rtc: [0, false, 1, 2, 3, 4, 5, 6, 7, 8, 9, false, false],
-    savedAt: 1234,
+    savedAt: 5678,
   };
-  const h = await harness({ emulatedRomHash: CURRENT_TRADE_BUILD, storedRecords: [[previousKey, previousSave]] });
+  const h = await harness({
+    emulatedRomHash: CURRENT_TRADE_BUILD,
+    storedRecords: [[previousKey, previousSave], [currentKey, currentSave]],
+  });
 
-  await h.load('pokemon_gold_ko_v0_8.gbc', rom('FIRST'));
+  await h.load('renamed.gbc', rom('FIRST'));
 
-  assert.equal(h.latest().ram[0], 0x73);
-  assert.deepEqual([...h.latest().rtc], previousSave.rtc);
+  assert.equal(h.latest().ram[0], 0x84);
+  assert.deepEqual([...h.latest().rtc], currentSave.rtc);
   assert.equal(h.element('screen').dataset.tradeBuild, CURRENT_TRADE_BUILD);
+  assert.deepEqual(h.reads.filter(key => key.startsWith('save:')), [currentKey]);
   assert.deepEqual(h.records.get(previousKey), previousSave);
-  assert.deepEqual(h.records.get(currentKey), previousSave);
-  assert.equal(h.writes.some(write => write.key === previousKey), false);
+  assert.deepEqual(h.records.get(currentKey), currentSave);
+  assert.equal(h.writes.some(write => write.key.startsWith('save:')), false);
 });
 
-test('the latest ROM can copy a save directly from the first supported version', async () => {
-  const { CURRENT_TRADE_BUILD, TRADE_BUILDS } = await import('./trade-signaling.js');
+test('the menu identifies an old cached ROM by its bytes before resume and after boot', async () => {
+  const { CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD, goldBuildVersion } = await import('./trade-signaling.js');
+  const previousVersion = goldBuildVersion(PREVIOUS_TRADE_BUILD);
+  const previousKey = 'save:' + PREVIOUS_TRADE_BUILD;
+  const previousSave = { ram: new Uint8Array(32768).fill(0x73), savedAt: 1234 };
+  const h = await harness({
+    emulatedRomHash: PREVIOUS_TRADE_BUILD,
+    storedRecords: [['current', {
+      name: 'latest.gbc',
+      hash: CURRENT_TRADE_BUILD,
+      bytes: rom('CACHED'),
+    }], [previousKey, previousSave]],
+  });
+  assert.equal(h.element('restore-rom').textContent, `v${previousVersion} 이어 열기`);
+  assert.equal(h.element('rom-build').textContent, `이어 열기 ROM: v${previousVersion} (이전 판)`);
+  assert.match(h.element('rom-build-help').textContent, /ROM 파일 찾기.*세이브는 ROM별로/);
+  assert.equal(h.isPlaying(), false);
+  assert.deepEqual(h.fetches, []);
+
+  await h.element('restore-rom').emit('click');
+  assert.equal(h.element('rom-build').textContent, `실행 중인 ROM: v${previousVersion} (이전 판)`);
+  assert.equal(h.element('screen').dataset.tradeBuild, PREVIOUS_TRADE_BUILD);
+  assert.equal(h.latest().ram[0], 0x73);
+  assert.deepEqual(h.reads.filter(key => key.startsWith('save:')), [previousKey]);
+  assert.deepEqual(h.fetches, []);
+});
+
+test('opening the latest ROM starts fresh when only an earlier version has a save', async () => {
+  const { CURRENT_TRADE_BUILD, LATEST_GOLD_VERSION, TRADE_BUILDS } = await import('./trade-signaling.js');
+  const firstKey = 'save:' + TRADE_BUILDS[0];
+  const currentKey = 'save:' + CURRENT_TRADE_BUILD;
   const firstSave = { ram: new Uint8Array(32768).fill(0x56), savedAt: 1234 };
   const h = await harness({
     emulatedRomHash: CURRENT_TRADE_BUILD,
-    storedRecords: [['save:' + TRADE_BUILDS[0], firstSave]],
+    storedRecords: [[firstKey, firstSave]],
   });
-  await h.load('pokemon_gold_ko_v0_8.gbc', rom('FIRST'));
-  assert.deepEqual(h.records.get('save:' + CURRENT_TRADE_BUILD), firstSave);
-  assert.ok(TRADE_BUILDS.slice(1, -1).every(build => !h.records.has('save:' + build)));
+  await h.load('renamed.gbc', rom('FIRST'));
+  assert.equal(h.latest().openMBC, undefined);
+  assert.equal(h.latest().openRTC, undefined);
+  assert.deepEqual(h.reads.filter(key => key.startsWith('save:')), [currentKey]);
+  assert.equal(h.records.has(currentKey), false);
+  assert.deepEqual(h.records.get(firstKey), firstSave);
+  assert.equal(h.element('restore-rom').textContent, `v${LATEST_GOLD_VERSION} 이어 열기`);
+  assert.equal(h.element('rom-build').textContent, `실행 중인 ROM: v${LATEST_GOLD_VERSION} (최신판)`);
+  assert.match(h.element('rom-build-help').textContent, /없으면 새로 시작/);
+  const fileVersion = LATEST_GOLD_VERSION.replaceAll('.', '_');
+  assert.ok(h.element('latest-rom-download').href.endsWith(`/gold-v${LATEST_GOLD_VERSION}/pokemon_gold_ko_v${fileVersion}.gbc`));
+  assert.equal(h.element('walkthrough-download').download, `포켓몬스터 골드 v${LATEST_GOLD_VERSION} 공략집.txt`);
+  assert.deepEqual(h.fetches, []);
 });
 
-test('save migration cannot replace existing progress in the new ROM', async t => {
+test('resuming a cached ROM also starts fresh if only a different ROM has a save', async () => {
   const { CURRENT_TRADE_BUILD, PREVIOUS_TRADE_BUILD } = await import('./trade-signaling.js');
   const previousKey = 'save:' + PREVIOUS_TRADE_BUILD;
   const currentKey = 'save:' + CURRENT_TRADE_BUILD;
   const previous = { ram: new Uint8Array(32768).fill(0x73), savedAt: 1234 };
-  const current = { ram: new Uint8Array(32768).fill(0x84), savedAt: 5678 };
-
-  for (const concurrent of [false, true]) {
-    await t.test(concurrent ? 'created by another tab during migration' : 'stored before the ROM is opened', async () => {
-      const records = [[previousKey, previous]];
-      if (!concurrent) records.push([currentKey, current]);
-      const h = await harness({ emulatedRomHash: CURRENT_TRADE_BUILD, storedRecords: records });
-      if (concurrent) h.controls.onWrite = key => {
-        if (key === currentKey) h.records.set(key, current);
-      };
-
-      await h.load('pokemon_gold_ko_v0_8.gbc', rom('FIRST'));
-
-      assert.equal(h.latest().ram[0], 0x84);
-      assert.deepEqual(h.records.get(currentKey), current);
-      assert.deepEqual(h.records.get(previousKey), previous);
-      assert.equal(h.writes.some(write => write.key === currentKey), false);
-    });
-  }
+  const h = await harness({
+    emulatedRomHash: CURRENT_TRADE_BUILD,
+    storedRecords: [['current', { name: 'cached.gbc', bytes: rom('CACHED') }], [previousKey, previous]],
+  });
+  await h.element('restore-rom').emit('click');
+  assert.equal(h.latest().openMBC, undefined);
+  assert.equal(h.latest().openRTC, undefined);
+  assert.deepEqual(h.reads.filter(key => key.startsWith('save:')), [currentKey]);
+  assert.equal(h.records.has(currentKey), false);
+  assert.deepEqual(h.records.get(previousKey), previous);
 });
 
 test('a failed flush preserves the running ROM and allows recovery through file export', async () => {
