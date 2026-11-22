@@ -12,6 +12,7 @@ const GOLD_BUILDS = [
   ['0.9.1', 'e6b974d48da610a11d7e3fec0bd5d064f13ee1cc633b62f87cdcad5a4e9fb336'],
   ['0.9.2', '6e8ac761978f406a8fea5d737f498a17ff6a0c2ed685f7341806b20044ad197c'],
   ['0.9.3', 'be5509cb0fd3b72d73e017f53fab048048b8f15e9eac7397d00e122fc6ba6c42'],
+  ['0.9.4', 'ec9b1fce57159bcb22c8ce552b1d329fd351a5f9e5bf7d7d222da2a68f89cb06'],
 ];
 export const [LATEST_GOLD_VERSION, CURRENT_TRADE_BUILD] = GOLD_BUILDS.at(-1);
 export const PREVIOUS_TRADE_BUILD = GOLD_BUILDS.at(-2)[1];
